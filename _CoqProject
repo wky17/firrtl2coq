@@ -1,0 +1,25 @@
+-Q lib/simplssrlib simplssrlib
+lib/simplssrlib/Types.v
+lib/simplssrlib/Tactics.v
+lib/simplssrlib/Lists.v
+lib/simplssrlib/SsrOrder.v
+lib/simplssrlib/Seqs.v
+lib/simplssrlib/FSets.v
+lib/simplssrlib/FMaps.v
+lib/simplssrlib/HList.v
+lib/simplssrlib/Nats.v
+lib/simplssrlib/ZAriths.v
+lib/simplssrlib/Var.v
+lib/simplssrlib/Env.v
+lib/simplssrlib/Store.v
+-Q lib/nbits nbits
+lib/nbits/AuxLemmas.v
+lib/nbits/NBitsDef.v
+lib/nbits/NBitsOp.v
+lib/nbits/NBits.v
+-R src firrtl
+src/Env_with_implicit_widths.v
+src/Firrtl_with_implicit_widths.v
+src/HiEnv_with_implicit_widths.v
+src/HiFirrtl_with_implicit_widths.v
+src/Semantics_with_implicit_widths.v

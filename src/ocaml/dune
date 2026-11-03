@@ -1,0 +1,7 @@
+(env
+ (dev
+  (flags (:standard -w -a))))
+
+(executable
+ (name hipparser)
+ (libraries hifirrtl_lang))
