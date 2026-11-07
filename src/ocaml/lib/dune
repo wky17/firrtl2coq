@@ -1,2 +1,5 @@
 (library
- (name ocaml))
+ (name ocaml)
+ (wrapped false)
+ (libraries hifirrtl_lang extraction)
+ (modules transhiast nodehelper transhiast_without_inline coqgen))

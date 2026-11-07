@@ -69,7 +69,7 @@ type hfexpr =
 | Eprim_unop of eunop * hfexpr
 | Eprim_binop of ebinop * hfexpr * hfexpr
 | Emux of hfexpr * hfexpr * hfexpr
-(*| Evalidif of hfexpr * hfexpr*)
+| Evalidif of hfexpr * hfexpr
 | Eref of href
 and href =
 | Eid of var
@@ -77,17 +77,17 @@ and href =
 | Esubindex of href * int
 | Esubaccess of href * hfexpr
 
-type mem_port = { id : var; addr : var;
+(*type mem_port = { id : var; addr : var;
                   en : var; clk : var;
-                  mask : var }
+                  mask : var }*)
 
 type ruw =
 | Coq_old
 | Coq_new
 | Coq_undefined
 
-type hfmem = { data_type : ftype; depth : int; reader : mem_port list;
-               writer : mem_port list; read_latency : int;
+type hfmem = { data_type : ftype; depth : int; reader : var list;
+               writer : var list; read_latency : int;
                write_latency : int; read_write : ruw }
 
 type rst =
@@ -113,6 +113,8 @@ type hfstmt =
 | Sinvalid of href
 | Sinferport of var * href * hfexpr
 | Swhen of hfexpr * hfstmt_seq * hfstmt_seq
+| Sassert of hfexpr * hfexpr * hfexpr * var
+| Sassume of hfexpr * hfexpr * hfexpr * var
 and hfstmt_seq =
 | Qnil
 | Qcons of hfstmt * hfstmt_seq
@@ -224,7 +226,7 @@ let rec pp_expr out e =
  | Eprim_unop (op, e1) -> output_string out "(eprim_unop "; pp_unop out op; pp_expr out e1; output_string out ")"
  | Eprim_binop (bop, e1, e2) -> output_string out "(eprim_binop "; pp_binop out bop; pp_expr out e1; output_string out " "; pp_expr out e2; output_string out ")"
  | Emux (e1,e2,e3)  -> output_string out "(emux "; pp_expr out e1; output_string out " "; pp_expr out e2; output_string out " "; pp_expr out e3; output_string out " "; output_string out ")"
- (*| Evalidif (e1,e2)  -> output_string out "(evalidif "; pp_expr out e1; output_string out " "; pp_expr out e2; output_string out ")"*)
+ | Evalidif (e1,e2)  -> output_string out "(evalidif "; pp_expr out e1; output_string out " "; pp_expr out e2; output_string out ")"
  | Ecast (s, e) -> output_string out "(ecast "; pp_cast out s; output_string out " "; pp_expr out e; output_string out ")";
 
 and pp_ref out ref = 

@@ -7,11 +7,11 @@
 %token<string> BINARY HEX_DECIMAL OCTAL DECIMAL NUMERAL STRING SYMBOL S_HEX_DECIMAL S_BINARY S_NUMERAL S_OCTAL
 %token PAR_OPEN PAR_CLOSE ANG_OPEN ANG_CLOSE SQR_OPEN SQR_CLOSE UNDERSCORE QUOT SPRT KEYWORD
 %token CIRCUIT STM_MODULE STM_PUBMODULE STM_EXTMODULE STM_SKIP STM_INPUT STM_OUTPUT STM_WHEN STM_ELSE  STM_CONNECT STM_PCONNECT
-%token STM_NODE STM_NASS STM_INST KEYWORD_OF STM_DEFNAME STM_INVALID STM_PARAM /*STM_DATATYPE STM_DEPTH STM_READ STM_READ_L STM_WRITE STM_WRITE_L STM_READWRITE*/ STM_PREFIX STM_FORMAT STM_DEFAULT STM_WIDTH
-%token STM_WIRE STM_REG REG_WITH REG_RST REG_RSTARR STM_MEM SUB_FIELD UINT SINT INT CLOCK 
+%token STM_NODE STM_NASS STM_INST KEYWORD_OF STM_DEFNAME STM_INVALID STM_PARAM STM_DATATYPE STM_DEPTH STM_READ STM_READ_L STM_WRITE STM_WRITE_L STM_READWRITE STM_PREFIX STM_FORMAT STM_DEFAULT STM_WIDTH
+%token STM_WIRE STM_REG REG_WITH REG_RST REG_RSTARR STM_CMEM STM_MEM SUB_FIELD UINT SINT INT CLOCK ASSERT ASSUME
 %token EXPR_VALIDIF EXPR_ADD EXPR_AND EXPR_ANDR EXPR_ASCLOCK EXPR_ASFIXED EXPR_ASSINT EXPR_ASUINT EXPR_CAT EXPR_CVT EXPR_DIV EXPR_DSHL EXPR_DSHR EXPR_EQ EXPR_GEQ EXPR_GT EXPR_HEAD EXPR_LEQ EXPR_LT EXPR_MUL EXPR_MUX EXPR_NEG EXPR_NEQ EXPR_NOT EXPR_OR EXPR_ORR EXPR_PAD EXPR_REM EXPR_SHL EXPR_SHR EXPR_SUB EXPR_TAIL EXPR_XOR EXPR_XORR EXPR_BITS
 %token EOF
-%token /*M_OLD M_NEW*/ M_UNDEFINED ASYNC RESET BRA_OPEN BRA_CLOSE FLIP EXPR_ASASYNC FULL STM_CONNECT0 STM_INVALID0 STM_REGRESET0 STM_MEM_INFER STM_MEM_READ STM_MEM_WRITE STM_SMEM
+%token /*M_OLD M_NEW*/ M_UNDEFINED ASYNC RESET BRA_OPEN BRA_CLOSE FLIP EXPR_ASASYNC FULL STM_CONNECT0 STM_INVALID0 STM_REGRESET0 STM_CMEM_INFER STM_CMEM_READ STM_CMEM_WRITE STM_SMEM
 
 %start file
 %type <Ast.file> file
@@ -87,7 +87,7 @@ typ_def
   | BRA_OPEN btyp_def BRA_CLOSE          { Btyp ($2) }
 ;
 
-/*ruw
+/*ruw 
   : M_OLD                                { Coq_old }
   | M_NEW                                { Coq_new }
   | M_UNDEFINED                          { Coq_undefined }
@@ -116,19 +116,19 @@ statement
                                          { Sreg ($2, mk_freg $4 $6 $8 $10) }
   | ref STM_INVALID                      { Sinvalid ($1) }
   | STM_INVALID0 ref                     { Sinvalid ($2) }
-  /*| STM_MEM symbol KEYWORD STM_DATATYPE REG_RSTARR typ_def STM_DEPTH REG_RSTARR numeral STM_READ_L REG_RSTARR numeral STM_WRITE_L REG_RSTARR numeral memrdports memwrports STM_READWRITE REG_RSTARR ruw
-                                         { Smem ($2, mk_fmem $6 $9 $12 $15 $16 $17 $20)}
-  | STM_MEM symbol KEYWORD STM_DATATYPE REG_RSTARR typ_def STM_DEPTH REG_RSTARR numeral STM_READ_L REG_RSTARR numeral STM_WRITE_L REG_RSTARR numeral STM_READ REG_RSTARR symbols STM_WRITE REG_RSTARR symbols STM_READWRITE REG_RSTARR ruw
+  | STM_MEM symbol KEYWORD STM_DATATYPE REG_RSTARR typ_def STM_DEPTH REG_RSTARR numeral STM_READ_L REG_RSTARR numeral STM_WRITE_L REG_RSTARR numeral memrdports memwrports STM_READWRITE REG_RSTARR M_UNDEFINED
+                                         { Smem ($2, mk_fmem $6 $9 $12 $15 $16 $17 Coq_undefined)}
+  /*| STM_MEM symbol KEYWORD STM_DATATYPE REG_RSTARR typ_def STM_DEPTH REG_RSTARR numeral STM_READ_L REG_RSTARR numeral STM_WRITE_L REG_RSTARR numeral STM_READ REG_RSTARR symbols STM_WRITE REG_RSTARR symbols STM_READWRITE REG_RSTARR ruw
                                            { Smem (mk_fmem $2 $6 $9 $12 $15 $18 $21 $24)}*/
 
-  | STM_MEM symbol KEYWORD typ_def       { Swire ($2, $4) }
+  | STM_CMEM symbol KEYWORD typ_def       { Swire ($2, $4) }
   | STM_SMEM symbol KEYWORD typ_def      { Swire ($2, $4) }
   | STM_SMEM symbol KEYWORD typ_def SPRT M_UNDEFINED      { Swire ($2, $4) }
-  | STM_MEM_INFER symbol STM_NASS expr SPRT expr
+  | STM_CMEM_INFER symbol STM_NASS expr SPRT expr
                                          { Snode ($2, $4) }
-  | STM_MEM_READ symbol STM_NASS expr SPRT ref
+  | STM_CMEM_READ symbol STM_NASS expr SPRT ref
                                          { Snode ($2, $4) }
-  | STM_MEM_WRITE symbol STM_NASS expr SPRT ref
+  | STM_CMEM_WRITE symbol STM_NASS expr SPRT ref
                                          { Snode ($2, $4) }
 
   | STM_INST symbol KEYWORD_OF symbol    { Sinst ($2, $4) }
@@ -136,6 +136,10 @@ statement
                                          {Swhen ($2, $5, $10)}
   | STM_WHEN expr KEYWORD BRA_OPEN statements BRA_CLOSE {Swhen ($2, $5, Qnil)}
   | STM_DEFNAME STM_NASS symbol          {Sskip}
+  | ASSERT PAR_OPEN expr SPRT expr SPRT expr SPRT QUOT QUOT PAR_CLOSE KEYWORD symbol
+                                         { Sassert ($3, $5, $7, $13) }
+  | ASSUME PAR_OPEN expr SPRT expr SPRT expr SPRT QUOT QUOT PAR_CLOSE KEYWORD symbol
+                                         { Sassume ($3, $5, $7, $13) }
 ;
   
 /* expression */
@@ -272,29 +276,83 @@ expr
 
     | EXPR_MUX PAR_OPEN expr SPRT expr SPRT expr PAR_CLOSE
                                             { Emux ($3, $5, $7)}
-    /*| EXPR_VALIDIF PAR_OPEN expr SPRT expr PAR_CLOSE
-                                            { Evalidif ($3, $5)}*/
+    | EXPR_VALIDIF PAR_OPEN expr SPRT expr PAR_CLOSE
+                                            { Evalidif ($3, $5)}
 ;  
 
 
 /* Symbols */
 
+/*symbol
+  : SYMBOL                              { $1 }*/
+
 symbol
   : SYMBOL                              { $1 }
+
+  | STM_WIRE                            { "wire" }
+  | STM_REG                             { "reg" }
+  | STM_MEM                             { "mem" }
+  | STM_INST                            { "inst" }
+  | STM_NODE                            { "node" }
+  | STM_INVALID0                        { "invalidate" }
+  | STM_INPUT                           { "input" }
+  | STM_OUTPUT                          { "output" }
+  | REG_RST                             { "reset" }
+
+  | EXPR_ADD                            { "add" }
+  | EXPR_SUB                            { "sub" }
+  | EXPR_MUL                            { "mul" }
+  | EXPR_DIV                            { "div" }
+  | EXPR_REM                            { "rem" }
+  | EXPR_LT                             { "lt" }
+  | EXPR_LEQ                            { "leq" }
+  | EXPR_GT                             { "gt" }
+  | EXPR_GEQ                            { "geq" }
+  | EXPR_EQ                             { "eq" }
+  | EXPR_NEQ                            { "neq" }
+  | EXPR_DSHL                           { "dshl" }
+  | EXPR_DSHR                           { "dshr" }
+  | EXPR_AND                            { "and" }
+  | EXPR_OR                             { "or" }
+  | EXPR_XOR                            { "xor" }
+  | EXPR_CAT                            { "cat" }
+  | EXPR_CVT                            { "cvt" }
+  | EXPR_NEG                            { "neg" }
+  | EXPR_NOT                            { "not" }
+  | EXPR_ANDR                           { "andr" }
+  | EXPR_ORR                            { "orr" }
+  | EXPR_XORR                           { "xorr" }
+  | EXPR_PAD                            { "pad" }
+  | EXPR_SHL                            { "shl" }
+  | EXPR_SHR                            { "shr" }
+  | EXPR_HEAD                           { "head" }
+  | EXPR_TAIL                           { "tail" }
+  | EXPR_BITS                           { "bits" }
+  | EXPR_MUX                            { "mux" }
+  | ASSERT                              { "assert" }
+  | ASSUME                              { "assume" }
+;
   
-ref
+/*ref
   : SYMBOL                              { Eid ($1) }
   | ref FULL SYMBOL                     { Esubfield ($1, $3) }
   | ref SQR_OPEN numeral SQR_CLOSE      { Esubindex ($1, $3) }
-  /*| ref SQR_OPEN expr SQR_CLOSE          { Esubindex ($1, 0) }*/
   | ref SQR_OPEN expr SQR_CLOSE         { Esubaccess ($1, $3) }
-;
+;*/
+
+ref
+  : symbol                              { Eid ($1) }
+  | ref FULL symbol                     { Esubfield ($1, $3) }
+  | ref SQR_OPEN numeral SQR_CLOSE      { Esubindex ($1, $3) }
+  | ref SQR_OPEN expr SQR_CLOSE         { Esubaccess ($1, $3) }
+  ;
 
 symbols
   :                                      { [] }
   | symbol symbols                       { $1::$2 }
 ;
-/* memports 
+
+/* memports */
 
 memrdport 
   : STM_READ REG_RSTARR symbol            { $3 }
@@ -313,7 +371,6 @@ memwrports
   :                                       { [] }
   | memwrport memwrports                { $1::$2 }
 ;
-*/
 
 /* spec_constant */
 

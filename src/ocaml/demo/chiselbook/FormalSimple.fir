@@ -1,6 +1,6 @@
 circuit FormalSimple :
   module FormalSimple :
-    input clock : Clock
+    input clock: Clock
     input reset1 : UInt<1>
     output io : { flip a : UInt<10>, flip b : UInt<10>, y : UInt<10>}
 

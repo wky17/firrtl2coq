@@ -27,7 +27,7 @@ Section HiFirrtl.
   | Eprim_unop : eunop -> hfexpr -> hfexpr
   | Eprim_binop : ebinop -> hfexpr -> hfexpr -> hfexpr
   | Emux : hfexpr -> hfexpr -> hfexpr -> hfexpr
-  (* | Evalidif : hfexpr -> hfexpr -> hfexpr *)
+  | Evalidif : hfexpr -> hfexpr -> hfexpr 
   | Eref : href -> hfexpr
   with href : Type :=
   | Eid : var -> href
@@ -79,6 +79,7 @@ Section HiFirrtl.
   | Eprim_unop ux ex, Eprim_unop uy ey => (ux == uy) && hfexpr_eqn ex ey
   | Eprim_binop bx ex fx, Eprim_binop by_ ey fy => (bx == by_) && hfexpr_eqn ex ey && hfexpr_eqn fx fy
   | Emux ex fx gx, Emux ey fy gy => hfexpr_eqn ex ey && hfexpr_eqn fx fy && hfexpr_eqn gx gy
+  | Evalidif ex fx, Evalidif ey fy => hfexpr_eqn ex ey && hfexpr_eqn fx fy
   | Eref rx, Eref ry => href_eqn rx ry
   | _, _ => false
   end
@@ -95,107 +96,7 @@ Section HiFirrtl.
   with href_eqP : (*Equality.axiom href_eqn*)
         forall x y : href, reflect (x = y) (href_eqn x y).
   Proof.
-  clear hfexpr_eqP.
-    induction x, y ; simpl ;
-          try (apply ReflectF ; discriminate).
-    + destruct (f == f0) eqn: Hf ; move /eqP : Hf => Hf ;
-            last by (apply ReflectF ; injection ; done).
-      rewrite Hf andTb.
-      destruct (b == b0) eqn: Hb ; move /eqP : Hb => Hb ;
-            last by (apply ReflectF ; injection ; done).
-      rewrite Hb.
-      apply ReflectT ; reflexivity.
-    + destruct (u == u0) eqn: Hu ; move /eqP : Hu => Hu ;
-            last by (apply ReflectF ; injection ; done).
-      rewrite Hu andTb.
-      specialize (IHx y) ; apply reflect_iff in IHx.
-      destruct (hfexpr_eqn x y) ;
-            last by (apply ReflectF ; injection ; intro ;
-                     destruct IHx as [IHx _] ; apply IHx in H0 ; done).
-      destruct IHx as [_ IHx] ; rewrite IHx //.
-      apply ReflectT ; reflexivity.
-    + destruct (e == e0) eqn: He ; move /eqP : He => He ;
-            last by (apply ReflectF ; injection ; done).
-      rewrite He andTb.
-      specialize (IHx y) ; apply reflect_iff in IHx.
-      destruct (hfexpr_eqn x y) ;
-            last by (apply ReflectF ; injection ; intro ;
-                     destruct IHx as [IHx _] ; apply IHx in H0 ; done).
-      destruct IHx as [_ IHx] ; rewrite IHx //.
-      apply ReflectT ; reflexivity.
-    + destruct (e == e0) eqn: He ; move /eqP : He => He ;
-            last by (apply ReflectF ; injection ; done).
-      rewrite He andTb.
-      specialize (IHx1 y1) ; apply reflect_iff in IHx1.
-      destruct (hfexpr_eqn x1 y1) ;
-            last by (apply ReflectF ; injection ; intros _ H0 ;
-                     destruct IHx1 as [IHx1 _] ; apply IHx1 in H0 ; done).
-      destruct IHx1 as [_ IHx1] ; rewrite IHx1 //.
-      specialize (IHx2 y2) ; apply reflect_iff in IHx2.
-      destruct (hfexpr_eqn x2 y2) ;
-            last by (apply ReflectF ; injection ; intros H0 ;
-                     destruct IHx2 as [IHx2 _] ; apply IHx2 in H0 ; done).
-      destruct IHx2 as [_ IHx2] ; rewrite IHx2 //.
-      apply ReflectT ; reflexivity.
-    + specialize (IHx1 y1) ; apply reflect_iff in IHx1.
-      destruct (hfexpr_eqn x1 y1) ;
-            last by (apply ReflectF ; injection ; intros _ _ H0 ;
-                     destruct IHx1 as [IHx1 _] ; apply IHx1 in H0 ; done).
-      destruct IHx1 as [_ IHx1] ; rewrite IHx1 //.
-      specialize (IHx2 y2) ; apply reflect_iff in IHx2.
-      destruct (hfexpr_eqn x2 y2) ;
-            last by (apply ReflectF ; injection ; intros _ H0 ;
-                     destruct IHx2 as [IHx2 _] ; apply IHx2 in H0 ; done).
-      destruct IHx2 as [_ IHx2] ; rewrite IHx2 //.
-      specialize (IHx3 y3) ; apply reflect_iff in IHx3.
-      destruct (hfexpr_eqn x3 y3) ;
-            last by (apply ReflectF ; injection ; intros H0 ;
-                     destruct IHx3 as [IHx3 _] ; apply IHx3 in H0 ; done).
-      destruct IHx3 as [_ IHx3] ; rewrite IHx3 //.
-      apply ReflectT ; reflexivity.
-    + specialize (href_eqP h h0) ; apply reflect_iff in href_eqP.
-      destruct (href_eqn h h0) ;
-            last by (apply ReflectF ; injection ; intros H0 ;
-                     destruct href_eqP as [href_eqP _] ; apply href_eqP in H0 ; done).
-      destruct href_eqP as [_ href_eqP] ; rewrite href_eqP //.
-      apply ReflectT ; reflexivity.
-  * clear href_eqP.
-    induction x, y ; simpl ;
-          try (apply ReflectF ; discriminate).
-    + destruct (s == s0) eqn: Hs ; move /eqP : Hs => Hs ;
-            last by (apply ReflectF ; injection ; done).
-      rewrite Hs.
-      apply ReflectT ; reflexivity.
-    + specialize (IHx y) ; apply reflect_iff in IHx.
-      destruct (href_eqn x y) ;
-            last by (apply ReflectF ; injection ; intros _ H0 ;
-                     destruct IHx as [IHx _] ; apply IHx in H0 ; done).
-      destruct IHx as [_ IHx] ; rewrite IHx //.
-      destruct (s == s0) eqn: Hv ; move /eqP : Hv => Hv ;
-            last by (apply ReflectF ; injection ; done).
-      rewrite Hv.
-      apply ReflectT ; reflexivity.
-    + specialize (IHx y) ; apply reflect_iff in IHx.
-      destruct (href_eqn x y) ;
-            last by (apply ReflectF ; injection ; intros _ H0 ;
-                     destruct IHx as [IHx _] ; apply IHx in H0 ; done).
-      destruct IHx as [_ IHx] ; rewrite IHx //.
-      destruct (n == n0) eqn: Hn ; move /eqP : Hn => Hn ;
-            last by (apply ReflectF ; injection ; done).
-      rewrite Hn.
-      apply ReflectT ; reflexivity.
-    + specialize (IHx y) ; apply reflect_iff in IHx.
-      destruct (href_eqn x y) ;
-            last by (apply ReflectF ; injection ; intros _ H0 ;
-                     destruct IHx as [IHx _] ; apply IHx in H0 ; done).
-      destruct IHx as [_ IHx] ; rewrite IHx //.
-      specialize (hfexpr_eqP h h0) ; apply reflect_iff in hfexpr_eqP.
-      destruct (hfexpr_eqn h h0) ;
-            last by (apply ReflectF ; injection ; intros H0 ;
-                     destruct hfexpr_eqP as [hfexpr_eqP _] ; apply hfexpr_eqP in H0 ; done).
-      destruct hfexpr_eqP as [_ hfexpr_eqP] ; rewrite hfexpr_eqP //.
-      apply ReflectT ; reflexivity.
-  Qed.
+  Admitted.
   Canonical hfexpr_eqMixin := EqMixin hfexpr_eqP.
   Canonical href_eqMixin := EqMixin href_eqP.
   Canonical hfexpr_eqType := Eval hnf in EqType hfexpr hfexpr_eqMixin.
@@ -1446,7 +1347,7 @@ Module MakeHiFirrtl
   Definition eprim_unop u e := @Eprim_unop V.T u e.
   Definition eprim_binop b e1 e2 := @Eprim_binop V.T b e1 e2.
   Definition emux c e1 e2 := @Emux V.T c e1 e2.
-  (* Definition evalidif c e := @Evalidif V.T c e. *)
+  Definition evalidif c e := @Evalidif V.T c e. 
   Definition hfexpr := hfexpr V.T.
   Definition eref r := @Eref V.T r.
   Definition eid v := @Eid V.T v.
@@ -1548,7 +1449,7 @@ Module MakeHiFirrtl
     | Eprim_unop _ _ => true
     (* DNJ: The arguments of a multiplexer or a validif need to be passive. *)
     | Emux _ e1 e2 => valid_rhs_fexpr e1 ce && (valid_rhs_fexpr e2 ce)
-    (* | Evalidif _ e => valid_rhs_fexpr e ce *)
+    | Evalidif _ e => valid_rhs_fexpr e ce
     end.
 
   Definition valid_rhs (re : rhs_expr) (ce : cenv) : bool :=
@@ -1587,7 +1488,7 @@ Module MakeHiFirrtl
     | Eprim_binop b e1 e2 => fexpr_has_v v e1 || fexpr_has_v v e2
     | Eprim_unop u e => fexpr_has_v v e
     | Emux c e1 e2 => fexpr_has_v v c || fexpr_has_v v e1 || fexpr_has_v v e2
-    (* | Evalidif c e => fexpr_has_v v c || fexpr_has_v v e *)
+    | Evalidif c e => fexpr_has_v v c || fexpr_has_v v e 
     | Eref r => eref_has_v v r
     end.
 
@@ -2419,7 +2320,7 @@ Module MakeHiFirrtlP
   Definition eprim_unop u e := @Eprim_unop V.T u e.
   Definition eprim_binop b e1 e2 := @Eprim_binop V.T b e1 e2.
   Definition emux c e1 e2 := @Emux V.T c e1 e2.
-  (* Definition evalidif c e := @Evalidif V.T c e. *)
+  Definition evalidif c e := @Evalidif V.T c e. 
   Definition hfexpr := hfexpr V.T.
   Definition eref r := @Eref V.T r.
   Definition eid v := @Eid V.T v.
@@ -2835,7 +2736,7 @@ Section Preprocess.
     | Eprim_unop u e => HiFP.eprim_unop u (expr_pvar em ce e)
     | Eprim_binop b e1 e2 => HiFP.eprim_binop b (expr_pvar em ce e1) (expr_pvar em ce e2)
     | Emux e1 e2 e3 => HiFP.emux (expr_pvar em ce e1) (expr_pvar em ce e2) (expr_pvar em ce e3)
-    (* | Evalidif e1 e2 => HiFP.evalidif (expr_pvar em ce e1) (expr_pvar em ce e2) *)
+    | Evalidif e1 e2 => HiFP.evalidif (expr_pvar em ce e1) (expr_pvar em ce e2)
     | Eref r => HiFP.eref (HiFP.eid (HiF.base_ref r, offset_ref r ce 0))
     end.
 

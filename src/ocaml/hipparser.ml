@@ -20,6 +20,9 @@ let usage = "Usage: hipparse FILE\n"
 
 let anon file =
   let hif_ast = Parser.hiparse file in 
-  Ast.pp_fcircuit stdout hif_ast
+  (*let ((modmap, _), map) = Transhiast_without_inline.mapcir hif_ast in 
+  let hif_without_inline = Transhiast_without_inline.trans_cir hif_ast modmap map in
+  
+  Ast.pp_fcircuit stdout hif_ast*) ()
 
 let () = parse args anon usage

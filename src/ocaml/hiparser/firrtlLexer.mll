@@ -38,9 +38,12 @@ and token = parse
 | ("\r\n"|'\n'|'\r')                    { reset_cnum(); incr lnum; token lexbuf }
 | '@'                                   { upd_cnum lexbuf; line_comment lexbuf }
 | ';'                                   { upd_cnum lexbuf; line_comment lexbuf }
+| "printf"                              { upd_cnum lexbuf; line_comment lexbuf }
 | "FIRRTL version"                      { upd_cnum lexbuf; line_comment lexbuf }
 | "%[[" comment_line' "]]"              { upd_cnum lexbuf; line_comment lexbuf }
 | '('                                   { upd_cnum lexbuf; PAR_OPEN }
+| "assert"                              { upd_cnum lexbuf; ASSERT }
+| "assume"                              { upd_cnum lexbuf; ASSUME }
 | ')'                                   { upd_cnum lexbuf; PAR_CLOSE }
 | '<'                                   { upd_cnum lexbuf; ANG_OPEN }
 | '>'                                   { upd_cnum lexbuf; ANG_CLOSE }
@@ -127,17 +130,17 @@ and token = parse
 | "node"                                { upd_cnum lexbuf; STM_NODE }
 | "="                                   { upd_cnum lexbuf; STM_NASS }
 | "inst"                                { upd_cnum lexbuf; STM_INST }
-| "aof"                                 { upd_cnum lexbuf; KEYWORD_OF }
+| "of"                                 { upd_cnum lexbuf; KEYWORD_OF }
 | "is invalid"                          { upd_cnum lexbuf; STM_INVALID}
 | "invalidate"                          { upd_cnum lexbuf; STM_INVALID0}
-(*| "data-type"                           { upd_cnum lexbuf; STM_DATATYPE}
+| "data-type"                           { upd_cnum lexbuf; STM_DATATYPE}
 | "depth"                               { upd_cnum lexbuf; STM_DEPTH}
 | "read-latency"                        { upd_cnum lexbuf; STM_READ_L}
 | "write-latency"                       { upd_cnum lexbuf; STM_WRITE_L}
 | "reader"                              { upd_cnum lexbuf; STM_READ}
 | "writer"                              { upd_cnum lexbuf; STM_WRITE}
 | "read-under-write"                    { upd_cnum lexbuf; STM_READWRITE}
-| "new"                                 { upd_cnum lexbuf; M_NEW}
+(*| "new"                                 { upd_cnum lexbuf; M_NEW}
 | "old"                                 { upd_cnum lexbuf; M_OLD}*)
 | "undefined"                           { upd_cnum lexbuf; M_UNDEFINED}
 
@@ -149,11 +152,12 @@ and token = parse
 | "neq"                                 { upd_cnum lexbuf; EXPR_NEQ }
 
 
-| "cmem"                                { upd_cnum lexbuf; STM_MEM }
+| "cmem"                                { upd_cnum lexbuf; STM_CMEM }
 | "smem"                                { upd_cnum lexbuf; STM_SMEM }
-| "infer mport"                         { upd_cnum lexbuf; STM_MEM_INFER }
-| "read mport"                          { upd_cnum lexbuf; STM_MEM_READ }
-| "write mport"                         { upd_cnum lexbuf; STM_MEM_WRITE }
+| "mem"                                { upd_cnum lexbuf; STM_MEM }
+| "infer mport"                         { upd_cnum lexbuf; STM_CMEM_INFER }
+| "read mport"                          { upd_cnum lexbuf; STM_CMEM_READ }
+| "write mport"                         { upd_cnum lexbuf; STM_CMEM_WRITE }
  
 (* Types *)
 | "UInt"                                { upd_cnum lexbuf; UINT }

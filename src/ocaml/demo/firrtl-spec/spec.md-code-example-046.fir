@@ -1,0 +1,10 @@
+FIRRTL version 4.0.0
+circuit MyModule:
+  ;; snippetbegin
+  public module MyModule :
+    input portx: {b: UInt<1>, c: UInt<2>}
+    input porty: UInt<2>
+    output myport: {b: UInt<1>, c: UInt<2>}
+    connect myport.b, porty
+    connect myport, portx
+  ;; snippetend

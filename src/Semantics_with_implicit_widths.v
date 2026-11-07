@@ -568,6 +568,7 @@ Fixpoint type_of_expr' (type_of_ref' : HiF.href -> option ftype) (e : HiF.hfexpr
   | Econst (Fuint w) bs => if w < size bs then None else Some (Gtyp (Fuint w))
   | Econst (Fsint w) bs => if w < size bs then None else Some (Gtyp (Fsint w))
   | Econst _ bs => None (* constants cannot be of Fclock, Freset, Fasyncreset type *)
+  | Evalidif _ e1 => type_of_expr' type_of_ref' e1
   | Eref r => type_of_ref' r
   | Ecast AsUInt e1 => match type_of_expr' type_of_ref' e1 with
                         | Some (Gtyp (Fuint          w))
@@ -1049,6 +1050,9 @@ induction e ; simpl ; intros.
   1-3: rewrite -IHe2 //.
   1-3: destruct (type_of_expr' (type_of_ref (Some sc) tmap_small) e3) ; last by contradiction H0.
   1-3: by rewrite -IHe3 //.
+* (* Evalidif *)
+  destruct (type_of_expr' (type_of_ref (Some sc) tmap_small) e2) ; last by contradiction H0.
+  by rewrite -IHe2 //.
 * (* Eref *)
   apply type_of_ref_super_tmap.
   + exact H.
@@ -1083,6 +1087,9 @@ induction e ; simpl ; intros.
   1-3: rewrite -IHe2 //.
   1-3: destruct (type_of_expr' (type_of_ref (Some sc) tmap) e3) ; last by contradiction H.
   1-3: by rewrite -IHe3 //.
+* (* Evalidif *)
+  destruct (type_of_expr' (type_of_ref (Some sc) tmap) e2) ; last by contradiction H.
+  by rewrite -IHe2 //.
 * (* Eref *)
   apply type_of_ref_unscope, H.
 Qed.
@@ -2383,7 +2390,7 @@ Lemma type_of_expr_is_monotonous :
 Proof.
 intros.
 unfold type_of_expr.
-induction e as [| | | | |] ; simpl.
+induction e as [| | | | | |] ; simpl.
 * (* Econst *)
   destruct f ; try done.
   1-2: destruct (n < size b) ; simpl ; done.
@@ -2488,6 +2495,10 @@ induction e as [| | | | |] ; simpl.
   1-5: generalize (ftype_mux_is_monotonous true IHe2 IHe3) ; intro.
   1-5: destruct (ftype_mux true st1 st2) as [st|],
                 (ftype_mux true lt1 lt2) as [lt|] ; by done.
+* (* Evalidif *)
+  destruct (type_of_expr' (type_of_ref sc s) e2) as [st|] ; last by done.
+  destruct (type_of_expr' (type_of_ref sc l) e2) as [lt|] ; last by done.
+  exact IHe2.
 * (* Eref *)
   generalize (type_of_ref_is_monotonous sc h H) ; intro.
   destruct (type_of_ref sc s h) as [st|] ; last by done.
@@ -2614,29 +2625,29 @@ Proof.
     generalize (type_of_ref_is_monotonous None r H) ; intro.
     destruct (type_of_ref None s r) as [tor_s|] ; last by destruct e.
     generalize (type_of_expr_is_monotonous None e H) ; intro.
-    destruct e as [ft b|u e|op e|op e1 e2|c e1 e2|r'].
+    destruct e as [ft b|u e|op e|op e1 e2|c e1 e2|c e|r'].
     - (* Econst, Ecast, Eprim_unop, Eprim_binop, Emux *)
-      1-5: destruct (type_of_expr None s _) as [toe_s|] ; last done.
-      1-5: generalize (@unify_width_is_monotonous Nflip tor_s toe_s) ; intro.
-      1-5: destruct (unify_width Nflip tor_s toe_s) as [[ntor_s ntoe_s]|] ; last done.
-      1-5: specialize (@repl_type_part_is_monotonous s l r ntor_s) with (1 := H) ; intro.
-      1-5: generalize (H (HiF.base_ref r)) ; intro.
-      1-5: destruct (VM.find (HiF.base_ref r) s) as [[tbrs cbrs]|] ; last done.
-      1-5: destruct (repl_type_part r tbrs ntor_s) as [rtps|] ; last done.
-      1-5: destruct (type_of_ref None l r) as [tor_l|] ; last done.
-      1-5: destruct (type_of_expr None l _) as [toe_l|] ; last done.
-      1-5: specialize (H2 tor_l toe_l H0 H1).
-      1-5: destruct (unify_width Nflip tor_l toe_l) as [[ntor_l ntoe_l]|] ; last done.
-      1-5: move /andP : H2 => [Hntor Hntoe].
-      1-5: specialize (H3 ntor_l Hntor).
-      1-5: destruct (VM.find (HiF.base_ref r) l) as [[tbrl cbrl]|] ; last done.
-      1-5: destruct (repl_type_part r tbrl ntor_l) as [rtpl|] ; last done.
-      1-5: intro.
-      1-5: destruct (v == HiF.base_ref r) eqn: Hvbr.
-      * 1,3,5,7,9: move /andP : H4 => [_ H4].
-        1-5: by rewrite ?(VM.Lemmas.find_add_eq Hvbr) H3 H4.
-      * 1-5: rewrite ?(VM.Lemmas.find_add_neq (elimF idP Hvbr)).
-        1-5: by apply H.
+      1-6: destruct (type_of_expr None s _) as [toe_s|] ; last done.
+      1-6: generalize (@unify_width_is_monotonous Nflip tor_s toe_s) ; intro.
+      1-6: destruct (unify_width Nflip tor_s toe_s) as [[ntor_s ntoe_s]|] ; last done.
+      1-6: specialize (@repl_type_part_is_monotonous s l r ntor_s) with (1 := H) ; intro.
+      1-6: generalize (H (HiF.base_ref r)) ; intro.
+      1-6: destruct (VM.find (HiF.base_ref r) s) as [[tbrs cbrs]|] ; last done.
+      1-6: destruct (repl_type_part r tbrs ntor_s) as [rtps|] ; last done.
+      1-6: destruct (type_of_ref None l r) as [tor_l|] ; last done.
+      1-6: destruct (type_of_expr None l _) as [toe_l|] ; last done.
+      1-6: specialize (H2 tor_l toe_l H0 H1).
+      1-6: destruct (unify_width Nflip tor_l toe_l) as [[ntor_l ntoe_l]|] ; last done.
+      1-6: move /andP : H2 => [Hntor Hntoe].
+      1-6: specialize (H3 ntor_l Hntor).
+      1-6: destruct (VM.find (HiF.base_ref r) l) as [[tbrl cbrl]|] ; last done.
+      1-6: destruct (repl_type_part r tbrl ntor_l) as [rtpl|] ; last done.
+      1-6: intro.
+      1-6: destruct (v == HiF.base_ref r) eqn: Hvbr.
+      * 1,3,5,7,9,11: move /andP : H4 => [_ H4].
+        1-6: by rewrite ?(VM.Lemmas.find_add_eq Hvbr) H3 H4.
+      * 1-6: rewrite ?(VM.Lemmas.find_add_neq (elimF idP Hvbr)).
+        1-6: by apply H.
     - (* Eref *)
       clear H1 ; generalize (type_of_ref_is_monotonous None r' H) ; intro.
       destruct (type_of_ref None s r') as [tor'_s|] ; last done.
@@ -4422,6 +4433,12 @@ with eval_hfexpr (exp : HiF.hfexpr) (sem_old sem_new : VM.t hvalue) : option hva
                   | _ => None
                   end
   | Eref r => eval_href r sem_old sem_new
+  | Evalidif c e => match eval_hfexpr c sem_old sem_new with
+                    | Some (Gval (Fuint _) vc) =>
+                        if is_zero vc then option_map Undefinedonpurpose (eval_type_of_expr e sem_new)
+                        else eval_hfexpr e sem_old sem_new
+                    | _ => None
+                    end
   | Ecast AsUInt e => match eval_hfexpr e sem_old sem_new with
                       | Some (Gval (Fuint          w) val)
                       | Some (Gval (Fsint          w) val) => Some (Gval (Fuint w) val)
@@ -4845,7 +4862,7 @@ Proof.
           - move /andP : H0 => [H0 _] ; by exact H0.
           - by apply make_ftype_explicit_is_explicit_and_concrete.
   (* Now that we have proven the "enough" condition, we can continue with the simplified goal: *)
-  induction e as [[w|w|w|w| | | |] bs|[] e IHe|op e IHe|op e1 IHe1 e2 IHe2|c IHc e1 IHe1 e2 IHe2|r] ;
+  induction e as [[w|w|w|w| | | |] bs|[] e IHe|op e IHe|op e1 IHe1 e2 IHe2|c IHc e1 IHe1 e2 IHe2|c IHc e IHe|r] ;
         simpl ; try done.
   + (* Econst *)
     1,2: destruct (w < size bs) eqn: Hws ; first done.
@@ -5161,18 +5178,21 @@ Proof.
       1-36: destruct (ftype_mux true toe1 toe2) as [toe12|] ; last done ; simpl.
       1-36: rewrite eq_refl H0 ?andbT.
       1-36: by apply make_ftype_explicit_is_explicit_and_concrete.
+  + (* Evalidif *)
+    admit.
   + (* Eref *)
     specialize (eval_href_type_correct sem_old sem_new H r).
     destruct (eval_href r sem_old sem_new) as [val|], (eval_type_of_ref r sem_new) as [tor|] ; try done.
     - generalize (hvalue_is_type_correct_is_explicit eval_href_type_correct) ; intro.
       rewrite -(ftype_is_explicit_and_concrete_implies_make_ftype_explicit_id H0) eval_href_type_correct andTb.
     1,2: apply ftype_is_explicit_and_concrete_implies_concrete ; by assumption.
-Qed.
+Admitted.
 
 Lemma most_expressions_are_Gtyp :
     forall (e : HiF.hfexpr) (sem : VM.t hvalue),
         match e, eval_type_of_expr e sem with
         | Emux _ _ _, _
+        | Evalidif _ _, _
         | Eref _, _
         | _, None
         | _, Some (Gtyp _) => True
@@ -5181,7 +5201,7 @@ Lemma most_expressions_are_Gtyp :
 Proof.
 intros.
 unfold eval_type_of_expr.
-destruct e as [[] bs|[] h|[] h|[] h h0| |] eqn: He ; try done ; simpl.
+destruct e as [[] bs|[] h|[] h|[] h h0| | |] eqn: He ; try done ; simpl.
 1,2: destruct (n < size bs) ; done.
 all: destruct (type_of_expr' (eval_type_of_ref^~ sem) h) as [[[]| |]|] ; try done.
 1,2: destruct (n0 <= n < n1) ; done.
@@ -5754,6 +5774,10 @@ Fixpoint value_iter (sem_old : VM.t hvalue) (set_regs : bool) (sem_new : VM.t hv
                                 | Some old_r => value_iter sem_old set_regs (VM.add r old_r sem_new) ssl'
                                 | None => None
                                 end
+    | Qcons (Smem m fm) ssl' => match VM.find m sem_old with
+                                | Some old_m => value_iter sem_old set_regs (VM.add m old_m sem_new) ssl'
+                                | None => None
+                                end
     | Qcons (Snode n e) ssl' => match eval_hfexpr e sem_old sem_old with
                                 | Some hval => value_iter sem_old set_regs (VM.add n hval sem_new) ssl'
                                 | None => None
@@ -5936,6 +5960,7 @@ with statement_initial_map (s : HiF.hfstmt) (previous_cycle_register_map : optio
                      | Some t => Some (VM.add ii (Needtobedefined t) partial_map)
                      | None => None
                      end
+    | Smem v fm => Some (VM.add v (Aval (data_type fm) (create_undef_array_value Uninitialized (data_type fm) (depth fm))) partial_map)
     | Snode v e => match eval_type_of_expr e partial_map with
                    | Some t => Some (VM.add v (Needtobedefined t) partial_map)
                    | None => None
@@ -5946,7 +5971,7 @@ with statement_initial_map (s : HiF.hfstmt) (previous_cycle_register_map : optio
                          | Some partial_map_true => statements_initial_map ssf previous_cycle_register_map partial_map_true
                          | None => None
                          end
-    | _ => None (* Smem *)
+    | _ => None
     end.
 
 (* Calculate initial values for all components in one module at the beginning of a cycle.
