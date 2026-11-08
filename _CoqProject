@@ -23,4 +23,6 @@ src/Firrtl_with_implicit_widths.v
 src/HiEnv_with_implicit_widths.v
 src/HiFirrtl_with_implicit_widths.v
 src/Semantics_with_implicit_widths.v
+src/Semantics_for_circuit.v
+src/Semantics_with_memory.v
 src/Extract.v

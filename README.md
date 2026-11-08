@@ -81,7 +81,7 @@ It contains a small FIRRTL circuit expressed in Coq syntax:
 coqc -Q lib/simplssrlib simplssrlib \
      -Q lib/nbits nbits \
      -R src firrtl \
-     TestAdder.v
+     src/TestAdder.v
 ```
 
 If `TestAdder.vo` is produced without errors, the Coq side of the project is
@@ -108,7 +108,6 @@ The translator takes a FIRRTL file and writes a Coq file. For example, to
 translate `demo/CoreSoc.hi.fir` into `CoreSoc_memory.v`:
 
 ```bash
-cd src/ocaml
 dune exec ./bin/main.exe -- \
   demo/CoreSoc.hi.fir \
   CoreSoc_memory.v
@@ -122,7 +121,7 @@ cd ../..
 coqc -Q lib/simplssrlib simplssrlib \
      -Q lib/nbits nbits \
      -R src firrtl \
-     CoreSoc_memory.v
+     ./src/ocaml/CoreSoc_memory.v
 ```
 
 If compilation succeeds, `CoreSoc_memory.vo` is produced and the

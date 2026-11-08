@@ -5822,7 +5822,6 @@ Fixpoint value_iter (sem_old : VM.t hvalue) (set_regs : bool) (sem_new : VM.t hv
                                                                                                  end
                                                  | _ => None
                                                  end
-    | _ => None
     end.
 
 (* Run one iteration of calculating the stabilized value of all components in the circuit.
@@ -5971,7 +5970,6 @@ with statement_initial_map (s : HiF.hfstmt) (previous_cycle_register_map : optio
                          | Some partial_map_true => statements_initial_map ssf previous_cycle_register_map partial_map_true
                          | None => None
                          end
-    | _ => None
     end.
 
 (* Calculate initial values for all components in one module at the beginning of a cycle.
