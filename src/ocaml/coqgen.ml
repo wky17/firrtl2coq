@@ -54,8 +54,8 @@ and pp_binop = function
 let rec seq f = function [] -> "[::]" | x::xs -> "[:: " ^ f x ^ (List.fold_left (fun s x -> s ^ ";\n" ^ f x) "" xs) ^ "]"
 let pp_mem_port p = Printf.sprintf "(@mk_mem_port VarOrder.T %s %s %s %s %s)" (nat p.H.id) (nat p.addr) (nat p.en) (nat p.clk) (nat p.mask)
 let pp_mem m =
-  Printf.sprintf "(@mk_fmem VarOrder.T %s %d %s %s %d %d %s)"
-    (pp_type m.H.data_type) m.depth (seq pp_mem_port m.reader) (seq pp_mem_port m.writer)
+  Printf.sprintf "(@mk_fmem VarOrder.T %s %s %d %s %s %d %d %s)"
+    (nat m.H.storage_id) (pp_type m.H.data_type) m.depth (seq pp_mem_port m.reader) (seq pp_mem_port m.writer)
     m.read_latency m.write_latency
     (match m.read_write with I.Coq_old -> "old" | I.Coq_new -> "new" | I.Coq_undefined -> "undefined")
 let rec pp_stmt = function
@@ -117,6 +117,7 @@ let emit_verification oc (tc : Transhiast_without_inline.translated_circuit) =
   output_string oc "Definition generated_hvalue_true (v : Semantics_with_implicit_widths.hvalue) : Prop := match v with | Semantics_with_implicit_widths.Gval (Env_with_implicit_widths.Fuint 1) b => b != [:: false] | _ => False end.\n";
   output_string oc "Definition generated_expr_true (e : (@HiFirrtl_with_implicit_widths.hfexpr VarOrder.T)) (sem : Var.VM.t Semantics_with_implicit_widths.hvalue) : Prop := match Semantics_with_implicit_widths.eval_hfexpr e sem sem with | Some v => generated_hvalue_true v | None => False end.\n";
   output_string oc "Definition generated_circuit_value (external_inputs : Var.VM.t Semantics_with_implicit_widths.hvalue) : option (Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) := circuit_value_with_memory generated_modules generated_top None external_inputs.\n";
+  output_string oc "Definition generated_run (inputs : nat -> Var.VM.t Semantics_with_implicit_widths.hvalue) (k : nat) := circuit_run_from_reset generated_modules generated_top inputs k.\n";
   output_string oc "Fixpoint generated_assert_instances (module_id : VarOrder.T) (p : Var.VM.t Semantics_with_implicit_widths.hvalue -> Prop) (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) (xs : list (Semantics_with_implicit_widths.SVM.key * VarOrder.T)) : Prop := match xs with | [::] => True | (path, actual) :: tl => ((actual != module_id) \\/ match Semantics_with_implicit_widths.SVM.find path states with | Some sem => p sem | None => False end) /\\ generated_assert_instances module_id p states tl end.\n";
   output_string oc "Fixpoint generated_assume_instances (module_id : VarOrder.T) (p : Var.VM.t Semantics_with_implicit_widths.hvalue -> Prop) (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) (xs : list (Semantics_with_implicit_widths.SVM.key * VarOrder.T)) : Prop := match xs with | [::] => True | (path, actual) :: tl => ((actual != module_id) \\/ match Semantics_with_implicit_widths.SVM.find path states with | Some sem => p sem | None => False end) /\\ generated_assume_instances module_id p states tl end.\n";
   output_string oc "Definition generated_instances (module_id : VarOrder.T) (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) : Prop := match Semantics_with_implicit_widths.find_circuit_instances generated_modules generated_top with | Some im => generated_assert_instances module_id (fun _ => True) states (Semantics_with_implicit_widths.SVM.elements im) | None => False end.\n";
@@ -130,7 +131,7 @@ let emit_verification oc (tc : Transhiast_without_inline.translated_circuit) =
   List.iter (fun x -> Printf.fprintf oc "Definition generated_%s_%s_all (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) : Prop := match Semantics_with_implicit_widths.find_circuit_instances generated_modules generated_top with | Some im => generated_assert_instances %d generated_assert_%s_local states (Semantics_with_implicit_widths.SVM.elements im) | None => False end.\n" "assert" x.Transhiast_without_inline.name x.module_id x.Transhiast_without_inline.name) tc.assertions;
   List.iter (fun x -> Printf.fprintf oc "Definition generated_%s_%s_all (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) : Prop := match Semantics_with_implicit_widths.find_circuit_instances generated_modules generated_top with | Some im => generated_assume_instances %d generated_assume_%s_local states (Semantics_with_implicit_widths.SVM.elements im) | None => False end.\n" "assume" x.Transhiast_without_inline.name x.module_id x.Transhiast_without_inline.name) tc.assumes;
   Printf.fprintf oc "Definition generated_all_assumptions (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) : Prop := %s.\n" fold_assumes;
-  List.iteri (fun i x -> Printf.fprintf oc "Lemma generated_assert_%d : forall external_inputs states, generated_circuit_value external_inputs = Some states -> generated_all_assumptions states -> generated_assert_%s_all states.\nAdmitted.\n" i x.Transhiast_without_inline.name) tc.assertions
+  List.iteri (fun i x -> Printf.fprintf oc "Lemma generated_assert_%d : forall inputs (k : nat) states, generated_run inputs k = Some states -> generated_all_assumptions states -> generated_assert_%s_all states.\nAdmitted.\n" i x.Transhiast_without_inline.name) tc.assertions
 
 let emit_file oc (tc : Transhiast_without_inline.translated_circuit) =
   match tc.circuit with

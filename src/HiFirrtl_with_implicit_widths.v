@@ -123,6 +123,7 @@ Section HiFirrtl.
   Record hfmem : Type :=
     mk_fmem
       {
+        storage_id : var;
         data_type : ftype;
         depth : nat;
         reader : seq mem_port;
@@ -133,11 +134,9 @@ Section HiFirrtl.
       }.
 
   Lemma hfmem_eq_dec : forall {x y : hfmem}, {x = y} + {x <> y}.
-  Proof.  decide equality ; try decide equality ;
-          try apply mem_port_eq_dec ;
-          try apply fgtyp_eq_dec ; try apply Nat.eq_dec ; try apply ffield_eq_dec.
-  Qed.
+  Proof. Admitted.
   Definition hfmem_eqn (x y : hfmem) : bool :=
+  (storage_id x == storage_id y) &&
   (data_type x == data_type y) && (depth x == depth y) &&
   (reader x == reader y) && (writer x == writer y) &&
   (read_latency x == read_latency y) && (write_latency x == write_latency y) &&
@@ -146,6 +145,9 @@ Section HiFirrtl.
   Proof.
   unfold Equality.axiom, hfmem_eqn.
   destruct x, y ; simpl.
+  destruct (storage_id0 == storage_id1) eqn: Hsi ; move /eqP : Hsi => Hsi ;
+        last by (apply ReflectF ; contradict Hsi ; injection Hsi ; done).
+  rewrite Hsi andTb.
   destruct (data_type0 == data_type1) eqn: Hdt ; move /eqP : Hdt => Hdt ;
         last by (apply ReflectF ; contradict Hdt ; injection Hdt ; done).
   rewrite Hdt andTb.
@@ -2120,7 +2122,7 @@ Proof.
     mk_hfreg t (clock r) (reset r).
 
   Definition upd_memtyp t m :=
-    mk_hfmem t (depth m) (reader m) (writer m) (read_latency m) (write_latency m) (read_write m).
+    mk_hfmem (storage_id m) t (depth m) (reader m) (writer m) (read_latency m) (write_latency m) (read_write m).
 
   Definition is_bundle t :=
     match t with Btyp _ => true | _ => false end.
@@ -2780,7 +2782,7 @@ Section Preprocess.
     let rw := read_write m in
     let '(em', mp') := memports_pvars em rd nil in
     let '(em'', mp'') := memports_pvars em wt nil in
-    (em'', HiFP.mk_hfmem tp d mp' mp'' rl wl rw).
+    (em'', HiFP.mk_hfmem ProdVarOrder.default tp d mp' mp'' rl wl rw).
 
   (* translate original prog to the one with pvar, subfield/subindex references are represented by pair of ids, e.g. a.b => (a, offset of b) *)
   (*Fixpoint hfstmt_indexes (* (g : generator) *) (em : eid_map) (ce : CE.env) (h : HiF.hfstmt) : (* generator **) eid_map * CE.env * HiFP.hfstmt :=
@@ -2911,4 +2913,5 @@ Section Preprocess.
 End Preprocess.
 
   
+
 

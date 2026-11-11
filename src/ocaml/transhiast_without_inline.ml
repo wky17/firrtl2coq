@@ -37,8 +37,14 @@ let rec mapstmt modplmap (((map, map_i), flag), tmap) stmt =
       let port_type = Ast.Btyp (fields field_types) in
       let ports = List.sort_uniq String.compare (m.reader @ m.writer) in
       let mem_type = Ast.Btyp (fields (List.map (fun p -> (p, port_type)) ports)) in
+      (* The visible identifier [v] denotes the bundle of memory ports.  The
+         actual array is given a separate stable hidden identifier; no AST
+         reference is ever rewritten to this identifier. *)
       let (map0, flag0) = Transhiast.mapftype v (map, flag) mem_type in
-      let tmap0 = StringMap.add v mem_type tmap in
+      let storage = v ^ "._memory_storage" in
+      let storage_type = Ast.Atyp (m.data_type, m.depth) in
+      let (map_storage, flag_storage) = Transhiast.mapftype storage (map0, flag0) storage_type in
+      let tmap0 = StringMap.add storage storage_type (StringMap.add v mem_type tmap) in
       let add_port_number (mp, fi, vi) port =
         let paths = port :: List.map (fun (f, _) -> port ^ "." ^ f) field_types in
         List.fold_left (fun (mp, fi, vi) name ->
@@ -47,7 +53,7 @@ let rec mapstmt modplmap (((map, map_i), flag), tmap) stmt =
           else (StringMap.add full [fi] mp, fi + 1, IntMap.add fi full vi))
           (mp, fi, vi) paths
       in
-      let st0 = (map0, flag0, map_i) in
+      let st0 = (map_storage, flag_storage, IntMap.add flag_storage storage map_i) in
       let st1 = List.fold_left add_port_number st0 ports in
       let (map1, flag1, map_i1) = st1 in
       (((map1, map_i1), flag1), tmap0)
@@ -149,7 +155,8 @@ and trans_mem_port map name =
     clk = field "clk"; mask = field "mask" }
 
 and trans_hfmem v m map =
-  { HiFirrtl_with_implicit_widths.data_type = Transhiast.trans_ftype v m.data_type map;
+  { storage_id = Obj.magic (Stdlib.List.hd (StringMap.find (v ^ "._memory_storage") map));
+    data_type = Transhiast.trans_ftype v m.data_type map;
     depth = m.depth;
     reader = List.map (fun p -> trans_mem_port map (v ^ "." ^ p)) m.reader;
     writer = List.map (fun p -> trans_mem_port map (v ^ "." ^ p)) m.writer;
@@ -162,20 +169,19 @@ type assertion_metadata = { module_id : int; name : string; enable : HiFirrtl_wi
 type assume_metadata = assertion_metadata
 type translated_circuit = { circuit : HiFirrtl_with_implicit_widths.hfcircuit; assertions : assertion_metadata list; assumes : assume_metadata list }
 
-let rec collect_verification module_id map = function
+let rec collect_verification module_id map guards = function
   | Ast.Qnil -> ([], [])
   | Ast.Qcons (stmt, rest) ->
+      let combine enable = List.fold_left (fun e g -> Ast.Eprim_binop (Ast.Band, g, e)) enable guards in
       let a0, u0 = match stmt with
-        | Ast.Sassert (clock, enable, predicate, name) ->
-            ([{module_id; name; enable=Transhiast.trans_expr enable map; predicate=Transhiast.trans_expr predicate map}], [])
-        | Ast.Sassume (clock, enable, predicate, name) ->
-            ([], [{module_id; name; enable=Transhiast.trans_expr enable map; predicate=Transhiast.trans_expr predicate map}])
-        | Ast.Swhen (_, yes, no) ->
-            let a1,u1 = collect_verification module_id map yes in
-            let a2,u2 = collect_verification module_id map no in (a1 @ a2, u1 @ u2)
+        | Ast.Sassert (_clock, property, enable, name) -> ([{module_id; name; enable=Transhiast.trans_expr (combine enable) map; predicate=Transhiast.trans_expr property map}], [])
+        | Ast.Sassume (_clock, property, enable, name) -> ([], [{module_id; name; enable=Transhiast.trans_expr (combine enable) map; predicate=Transhiast.trans_expr property map}])
+        | Ast.Swhen (cond, yes, no) ->
+            let a1,u1 = collect_verification module_id map (cond :: guards) yes in
+            let a2,u2 = collect_verification module_id map ((Ast.Eprim_unop (Ast.Unot, cond)) :: guards) no in (a1 @ a2, u1 @ u2)
         | _ -> ([], [])
       in
-      let ar, ur = collect_verification module_id map rest in (a0 @ ar, u0 @ ur)
+      let ar, ur = collect_verification module_id map guards rest in (a0 @ ar, u0 @ ur)
 
 let trans_mod m modmap map = 
   match m with
@@ -206,6 +212,6 @@ let trans_cir cir modmap map =
       | Ast.FInmod (mv, _, stmts) ->
           let mid = StringMap.find mv modmap in
           let ((mm, _), _) = StringMap.find mv map in
-          let a,u = collect_verification mid mm stmts in (aa @ a, uu @ u)
+          let a,u = collect_verification mid mm [] stmts in (aa @ a, uu @ u)
       | Ast.FExmod _ -> (aa, uu)) ([], []) ml in
     { circuit; assertions; assumes }

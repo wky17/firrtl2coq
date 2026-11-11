@@ -14,6 +14,7 @@ Import Prenex Implicits.
    sem_old is used to read Esubaccess indices, sem_new is used to read the actual value *)
 
 Record memory_layout := {
+  ml_storage_id : VarOrder.T;
   ml_data_type : ftype;
   ml_depth : nat;
   ml_readers : seq (HiF.mem_port);
@@ -364,7 +365,8 @@ Fixpoint memory_map_of_stmts (ssl : HiF.hfstmt_seq) : memory_map :=
       match st with
       | Smem mem fm =>
           VM.add mem
-            {| ml_data_type := data_type fm;
+            {| ml_storage_id := storage_id fm;
+               ml_data_type := data_type fm;
                ml_depth := depth fm;
                ml_readers := reader fm;
                ml_writers := writer fm;
@@ -416,6 +418,119 @@ Definition circuit_value_iter_with_memory
   | None => None
   end.
 
+
+Fixpoint memory_addr_width (n : nat) : nat :=
+  match n with
+  | 0 => 1
+  | n'.+1 => if n'.+1 <= 1 then 1 else (memory_addr_width n').+1
+  end.
+
+Definition memory_port_initial_value (fm : HiF.hfmem) (p : HiF.mem_port) : hvalue :=
+  let aw := memory_addr_width (depth fm) in
+  Bval (Bflips (addr p) Nflip (Needtobedefined (Gtyp (Fuint aw)))
+    (Bflips (en p) Nflip (Needtobedefined (Gtyp (Fuint 1)))
+      (Bflips (clk p) Nflip (Needtobedefined (Gtyp Fclock))
+        (Bflips (mask p) Nflip (Needtobedefined (Gtyp (Fuint 1)))
+          (Bflips (id p) Nflip (Needtobedefined (data_type fm)) Bnil))))) .
+
+Fixpoint memory_ports_initial (ps : seq HiF.mem_port) (fm : HiF.hfmem)
+  (acc : bundle_value) : bundle_value :=
+  match ps with
+  | [::] => acc
+  | p :: tl =>
+      Bflips (id p) Nflip (memory_port_initial_value fm p)
+        (memory_ports_initial tl fm acc)
+  end.
+
+Definition memory_bundle_initial (fm : HiF.hfmem) : hvalue :=
+  Bval (memory_ports_initial (reader fm ++ writer fm) fm Bnil).
+
+Fixpoint statements_initial_map_with_memory
+  (mml : seq HiF.hfmodule) (ssl : HiF.hfstmt_seq)
+  (previous : option (VM.t hvalue)) (partial : VM.t hvalue)
+  : option (VM.t hvalue) :=
+  match ssl with
+  | Qnil => Some partial
+  | Qcons st tl =>
+      match st with
+      | Sskip => statements_initial_map_with_memory mml tl previous partial
+      | Swire v t => statements_initial_map_with_memory mml tl previous (VM.add v (Needtobedefined t) partial)
+      | Sreg v rt =>
+          match previous with
+          | None => statements_initial_map_with_memory mml tl previous (VM.add v (Uninitialized (type rt)) partial)
+          | Some pm => match VM.find v pm with
+                       | Some x => statements_initial_map_with_memory mml tl previous (VM.add v x partial)
+                       | None => None end
+          end
+      | Smem v fm =>
+          let ports := VM.add v (memory_bundle_initial fm) partial in
+          match previous with
+          | None => statements_initial_map_with_memory mml tl previous
+              (VM.add (storage_id fm)
+                (Aval (data_type fm) (create_undef_array_value Uninitialized (data_type fm) (depth fm))) ports)
+          | Some pm => match VM.find (storage_id fm) pm with
+              | Some contents => statements_initial_map_with_memory mml tl previous
+                  (VM.add (storage_id fm) contents ports)
+              | None => None end
+          end
+      | Sinst ii mi =>
+          match module_type mml mi with
+          | Some t => statements_initial_map_with_memory mml tl previous (VM.add ii (Needtobedefined t) partial)
+          | None => None end
+      | Snode v e =>
+          match eval_type_of_expr e partial with
+          | Some t => statements_initial_map_with_memory mml tl previous (VM.add v (Needtobedefined t) partial)
+          | None => None end
+      | Sfcnct _ _ | Sinvalid _ => statements_initial_map_with_memory mml tl previous partial
+      | Swhen _ yes no =>
+          match statements_initial_map_with_memory mml yes previous partial with
+          | Some p1 => match statements_initial_map_with_memory mml no previous p1 with
+                       | Some p2 => statements_initial_map_with_memory mml tl previous p2
+                       | None => None end
+          | None => None end
+      end
+  end.
+
+Definition module_initial_map_with_memory
+  (mml : seq HiF.hfmodule) (ii : seq VarOrder.T) (mi : VarOrder.T)
+  (previous : option (SVM.t (VM.t hvalue)))
+  (partial : SVM.t (VM.t hvalue)) : option (SVM.t (VM.t hvalue)) :=
+  match find_module mml mi with
+  | Some (FInmod _ ppl ssl) =>
+      let base := ports_initial_map ppl in
+      let prev_map := match previous with | Some pm => SVM.find ii pm | None => None end in
+      match statements_initial_map_with_memory mml ssl prev_map base with
+      | Some state => Some (SVM.add ii state partial)
+      | None => None end
+  | _ => None
+  end.
+
+Definition circuit_initial_map_with_memory
+  (mml : seq HiF.hfmodule) (mi_top : VarOrder.T)
+  (previous : option (SVM.t (VM.t hvalue)))
+  (external_inputs : VM.t hvalue)
+  : option (SVM.t (VM.t hvalue)) :=
+  match find_circuit_instances mml mi_top with
+  | Some fci =>
+      match SVM.fold
+        (fun (ii : SVM.key) (mi : VarOrder.T)
+             (acc : option (SVM.t (VM.t hvalue))) =>
+          match acc with
+          | Some a => match module_initial_map_with_memory mml ii mi previous a with
+                      | Some a' => Some a' | None => None end
+          | None => None end)
+        fci (Some (SVM.empty (VM.t hvalue))) with
+      | Some initial =>
+          match SVM.find [::] initial, find_module mml mi_top with
+          | Some top, Some (FInmod _ ppl _) =>
+              match update_external_ports top external_inputs ppl with
+              | Some top' => Some (SVM.add [::] top' initial)
+              | None => None end
+          | _, _ => None end
+      | None => None end
+  | None => None
+  end.
+
 Fixpoint circuit_value_iterator_with_memory
   (mml : seq HiF.hfmodule) (mi_top : VarOrder.T)
   (n : nat) (states : SVM.t (VM.t hvalue))
@@ -434,7 +549,7 @@ Definition circuit_value_with_memory
   (previous_cycle_register_map : option (SVM.t (VM.t hvalue)))
   (external_inputs : VM.t hvalue)
   : option (SVM.t (VM.t hvalue)) :=
-  match circuit_initial_map mml mi_top previous_cycle_register_map external_inputs,
+  match circuit_initial_map_with_memory mml mi_top previous_cycle_register_map external_inputs,
         circuit_iter_count mml Gtyp_connect_count with
   | Some initial_states, Some n =>
       match circuit_value_iterator_with_memory mml mi_top n initial_states with
@@ -443,3 +558,75 @@ Definition circuit_value_with_memory
       end
   | _, _ => None
   end.
+
+(* Reset values are evaluated in the initial input environment. *)
+Fixpoint reset_zero (t : ftype) : hvalue :=
+  match t with
+  | Gtyp g => match g with
+               | Fuint w => Gval g (zeros w)
+               | Fsint w => Gval g (zeros w)
+               | _ => Gval g [:: false]
+               end
+  | Atyp elt n => Aval elt ((fix fill n := match n with
+      | 0 => Anil | S k => Acons (reset_zero elt) (fill k) end) n)
+  | Btyp fs => Bval (reset_zero_fields fs)
+  end
+with reset_zero_fields (fs : ffield) : bundle_value :=
+  match fs with
+  | Fnil => Bnil
+  | Fflips v f t tl => Bflips v f (reset_zero t) (reset_zero_fields tl)
+  end.
+
+Fixpoint reset_registers (mm : memory_map) (ssl : HiF.hfstmt_seq)
+  (env state : VM.t hvalue) : option (VM.t hvalue) :=
+  match ssl with
+  | Qnil => Some state
+  | Qcons st tl =>
+      let next := match st with
+      | Sreg v r =>
+          match reset r with
+          | NRst => Some (VM.add v (reset_zero (type r)) state)
+          | Rst _ e => match eval_hfexpr_with_memory mm e env env with
+              | Some value => option_map (fun value => VM.add v value state)
+                  (adapt_hvalue_as_type value (type r))
+              | None => None end
+          end
+      | Swhen _ yes no => match reset_registers mm yes env state with
+          | Some state' => reset_registers mm no env state'
+          | None => None end
+      | _ => Some state end in
+      match next with
+      | Some state' => reset_registers mm tl env state'
+      | None => None end
+  end.
+
+Definition circuit_reset_state (mml : seq HiF.hfmodule) (top : VarOrder.T)
+  (initial_inputs : VM.t hvalue) : option (SVM.t (VM.t hvalue)) :=
+  match circuit_initial_map_with_memory mml top None initial_inputs,
+        find_circuit_instances mml top with
+  | Some initial, Some instances =>
+      SVM.fold (fun path mi acc =>
+        match acc, SVM.find path initial, find_module mml mi with
+        | Some states, Some env, Some (FInmod _ _ stmts) =>
+            match reset_registers (memory_map_of_stmts stmts) stmts env env with
+            | Some state => Some (SVM.add path state states)
+            | None => None end
+        | _, _, _ => None end) instances (Some initial)
+  | _, _ => None end.
+
+(* k steps consume inputs 0, ..., k-1; k=0 returns the reset state. *)
+Fixpoint circuit_run (mml : seq HiF.hfmodule) (top : VarOrder.T)
+  (initial : SVM.t (VM.t hvalue)) (inputs : nat -> VM.t hvalue)
+  (k : nat) : option (SVM.t (VM.t hvalue)) :=
+  match k with
+  | 0 => Some initial
+  | S n => match circuit_run mml top initial inputs n with
+      | Some previous => circuit_value_with_memory mml top (Some previous) (inputs n)
+      | None => None end
+  end.
+
+Definition circuit_run_from_reset (mml : seq HiF.hfmodule) (top : VarOrder.T)
+  (inputs : nat -> VM.t hvalue) (k : nat) :=
+  match circuit_reset_state mml top (inputs 0) with
+  | Some initial => circuit_run mml top initial inputs k
+  | None => None end.
