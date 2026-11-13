@@ -172,12 +172,10 @@ let binary_length (signed : bool) (n: Z.t) : int =
         else bits + 1
     else bits
 
-(* 辅助函数：将整数转换为布尔列表表示的二进制数 *)
-let rec int_to_bool_list n bits_remaining =
-  if bits_remaining = 0 then []
-  else
-    let bit = Z.testbit n (bits_remaining - 1) in
-    bit :: int_to_bool_list n (bits_remaining - 1)
+(* NBits stores the least significant bit first. Keep the declared width;
+   emitting the most significant bit first reverses every FIRRTL literal. *)
+let int_to_bool_list n width =
+  List.init width (fun index -> Z.testbit n index)
 
 (* 主函数：将整数转换为指定位长的二进制补码表示，并用 bool list 表示 *)
 let bits_of_z (n: Z.t) (bit_length: int) : bool list =

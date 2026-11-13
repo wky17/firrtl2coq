@@ -3962,7 +3962,9 @@ Definition sext_to (n : nat) (bs : bits) : bits :=
     sext (n - size bs) bs.
 
 (* evaluate binary operators *)
-Definition eval_binop (op : ebinop) (val1 val2 : hvalue) : option hvalue :=
+(* Keep unsigned comparisons in binary N. The notation [n < m] here uses
+   MathComp's N-to-nat coercion and can take time proportional to the values. *)
+Definition eval_binop_basic (op : ebinop) (val1 val2 : hvalue) : option hvalue :=
     match val1 with
     | Gval (Fuint          w1) val1 => match val2 with
                                        | Gval                     (Fuint          w2) val2 => match op with
@@ -3977,10 +3979,10 @@ Definition eval_binop (op : ebinop) (val1 val2 : hvalue) : option hvalue :=
                                                                                               | Bor   => Some (Gval (Fuint          (maxn w1 w2)   ) (orB  val1 val2))
                                                                                               | Bxor  => Some (Gval (Fuint          (maxn w1 w2)   ) (xorB val1 val2))
                                                                                               | Bcat  => Some (Gval (Fuint          (w1 + w2)      ) (val2 ++ val1))
-                                                                                              | Bcomp Blt  => Some (Gval (Fuint 1) [:: to_N val1 <  to_N val2])
-                                                                                              | Bcomp Bleq => Some (Gval (Fuint 1) [:: to_N val1 <= to_N val2])
-                                                                                              | Bcomp Bgt  => Some (Gval (Fuint 1) [:: to_N val1 >  to_N val2])
-                                                                                              | Bcomp Bgeq => Some (Gval (Fuint 1) [:: to_N val1 >= to_N val2])
+                                                                                              | Bcomp Blt  => Some (Gval (Fuint 1) [:: N.ltb (to_N val1) (to_N val2)])
+                                                                                              | Bcomp Bleq => Some (Gval (Fuint 1) [:: N.leb (to_N val1) (to_N val2)])
+                                                                                              | Bcomp Bgt  => Some (Gval (Fuint 1) [:: N.ltb (to_N val2) (to_N val1)])
+                                                                                              | Bcomp Bgeq => Some (Gval (Fuint 1) [:: N.leb (to_N val2) (to_N val1)])
                                                                                               | Bcomp Beq  => Some (Gval (Fuint 1) [:: to_N val1 == to_N val2])
                                                                                               | Bcomp Bneq => Some (Gval (Fuint 1) [:: to_N val1 != to_N val2])
                                                                                               end
@@ -4206,6 +4208,28 @@ Definition eval_binop (op : ebinop) (val1 val2 : hvalue) : option hvalue :=
                                                        end
     | _ => None
     end.
+
+Definition exact_bit (value : hvalue) : option bool :=
+ match value with Gval (Fuint 1) [::b] => Some b | _ => None end.
+Definition absorbing_bit (op : ebinop) (left right : hvalue) : option bool :=
+ if (type_of_val left == Gtyp (Fuint 1)) && (type_of_val right == Gtyp (Fuint 1)) then
+ match op, exact_bit left, exact_bit right with
+ | Band, Some false, _ | Band, _, Some false => Some false
+ | Bor, Some true, _ | Bor, _, Some true => Some true
+ | _, _, _ => None end
+ else None.
+(* Refine only an already typed unknown UInt<1> result.  Errors and known
+   results are preserved, including malformed or non-Boolean operands. *)
+Definition refine_boolean_result (known : option bool) (result : option hvalue)
+ : option hvalue :=
+ match known, result with
+ | Some b, Some (Needtobedefined (Gtyp (Fuint 1)))
+ | Some b, Some (Uninitialized (Gtyp (Fuint 1)))
+ | Some b, Some (Undefinedonpurpose (Gtyp (Fuint 1))) => Some (Gval (Fuint 1) [::b])
+ | _,_ => result end.
+Definition eval_binop (op : ebinop) (left right : hvalue) : option hvalue :=
+ refine_boolean_result (absorbing_bit op left right) (eval_binop_basic op left right).
+Arguments eval_binop op left right : simpl never.
 
 Definition eval_unop (op : eunop) (e1 : hvalue) : option hvalue :=
     match op, e1 with
@@ -4437,6 +4461,13 @@ with eval_hfexpr (exp : HiF.hfexpr) (sem_old sem_new : VM.t hvalue) : option hva
                     | Some (Gval (Fuint _) vc) =>
                         if is_zero vc then option_map Undefinedonpurpose (eval_type_of_expr e sem_new)
                         else eval_hfexpr e sem_old sem_new
+                    (* Match mux's unknown propagation: defer pending guards
+                       and preserve intentional invalidity, with the body type. *)
+                    | Some (Needtobedefined (Gtyp (Fuint _)))
+                    | Some (Uninitialized (Gtyp (Fuint _))) =>
+                        option_map Needtobedefined (eval_type_of_expr e sem_new)
+                    | Some (Undefinedonpurpose (Gtyp (Fuint _))) =>
+                        option_map Undefinedonpurpose (eval_type_of_expr e sem_new)
                     | _ => None
                     end
   | Ecast AsUInt e => match eval_hfexpr e sem_old sem_new with
@@ -4545,6 +4576,33 @@ with bundle_value_is_type_correct (bval : bundle_value) (ff : ffield) : bool :=
     | Bflips v' f' val bval', Fflips v f t ff' => (v'==v) && (f'==f) && hvalue_is_type_correct val t && bundle_value_is_type_correct bval' ff'
     | _, _ => false
     end.
+
+Lemma refine_boolean_result_type_correct known result toe :
+ (match result, toe with
+ | Some value, Some t => hvalue_is_type_correct value (make_ftype_explicit t) && ftype_is_concrete t
+ | Some _, None => false
+ | None, Some t => ftype_is_concrete t
+ | None, None => true end) ->
+ (match refine_boolean_result known result, toe with
+ | Some value, Some t => hvalue_is_type_correct value (make_ftype_explicit t) && ftype_is_concrete t
+ | Some _, None => false
+ | None, Some t => ftype_is_concrete t
+ | None, None => true end).
+Proof.
+ destruct known as [b|]; [|exact (fun H => H)].
+ destruct result as [value|]; [|exact (fun H => H)].
+ destruct value as [g bs|elt array|fields|t|t|t];
+ try exact (fun H => H).
+ all: destruct t as [g|elt n|fields]; try exact (fun H => H).
+ all: destruct g; try exact (fun H => H).
+ all: destruct n as [|[|n]]; try exact (fun H => H).
+ all: destruct toe as [t|]; [|exact (fun H => H)].
+ all: cbn [refine_boolean_result].
+ all: move/andP => [Hvalue Hconcrete]; apply/andP; split; [|exact Hconcrete].
+ all: change (Gtyp (Fuint 1) == make_ftype_explicit t) in Hvalue.
+ all: move/eqP: Hvalue => <-; reflexivity.
+Qed.
+
 
 (* hvalue_is_type_correct requires explicit and concrete types *)
 Lemma hvalue_is_type_correct_is_explicit :
@@ -5010,6 +5068,8 @@ Proof.
         last (by destruct op, toe1 as [[]| |] ;
                  try done ;
                  destruct toe2 as [[]| |]).
+    unfold eval_binop.
+    apply refine_boolean_result_type_correct.
     apply (elimT andP) in IHe1 ; destruct IHe1 as [IHe1 IHe1'] ;
     apply (elimT andP) in IHe2 ; destruct IHe2 as [IHe2 IHe2'].
     destruct op ; simpl.
@@ -5764,50 +5824,50 @@ Fixpoint make_undefined (sem_old : VM.t hvalue) (set_regs : bool) (undeftype : f
    We distinguish sem_old and sem_new to ensure the last connect semantics holds:
    sem_old would contain the last connect value from the previous iteration,
    while sem_new may contain a value that is going to be overwritten again. *)
-Fixpoint value_iter (sem_old : VM.t hvalue) (set_regs : bool) (sem_new : VM.t hvalue) (ssl : HiF.hfstmt_seq) : option (VM.t hvalue) :=
+Fixpoint value_iter_statements (sem_old : VM.t hvalue) (set_regs : bool) (sem_new : VM.t hvalue) (ssl : HiF.hfstmt_seq) : option (VM.t hvalue) :=
     match ssl with
     | Qnil => Some sem_new
     | Qcons Sskip ssl'
-    | Qcons (Sinst _ _) ssl' => value_iter sem_old set_regs sem_new ssl'
-    | Qcons (Swire w t) ssl' => value_iter sem_old set_regs (VM.add w (Needtobedefined t) sem_new) ssl'
+    | Qcons (Sinst _ _) ssl' => value_iter_statements sem_old set_regs sem_new ssl'
+    | Qcons (Swire w t) ssl' => value_iter_statements sem_old set_regs (VM.add w (Needtobedefined t) sem_new) ssl'
     | Qcons (Sreg r rt) ssl' => match VM.find r sem_old with
-                                | Some old_r => value_iter sem_old set_regs (VM.add r old_r sem_new) ssl'
+                                | Some old_r => value_iter_statements sem_old set_regs (VM.add r old_r sem_new) ssl'
                                 | None => None
                                 end
     | Qcons (Smem m fm) ssl' => match VM.find m sem_old with
-                                | Some old_m => value_iter sem_old set_regs (VM.add m old_m sem_new) ssl'
+                                | Some old_m => value_iter_statements sem_old set_regs (VM.add m old_m sem_new) ssl'
                                 | None => None
                                 end
     | Qcons (Snode n e) ssl' => match eval_hfexpr e sem_old sem_old with
-                                | Some hval => value_iter sem_old set_regs (VM.add n hval sem_new) ssl'
+                                | Some hval => value_iter_statements sem_old set_regs (VM.add n hval sem_new) ssl'
                                 | None => None
                                 end
     | Qcons (Sfcnct r (Eref r')) ssl' => (* bidirectional connect *)
                                          match bidirectional_connect r r' sem_old sem_new with
-                                         | Some sem_cnct => value_iter sem_old set_regs sem_cnct ssl'
+                                         | Some sem_cnct => value_iter_statements sem_old set_regs sem_cnct ssl'
                                          | None => None
                                          end
     | Qcons (Sfcnct r e) ssl' => (* unidirectional connect; must be passive *) 
                                  match unidirectional_connect r e sem_old sem_new with
-                                 | Some sem_cnct => value_iter sem_old set_regs sem_cnct ssl'
+                                 | Some sem_cnct => value_iter_statements sem_old set_regs sem_cnct ssl'
                                  | None => None
                                  end
     | Qcons (Sinvalid r) ssl' => match undef_ref r Undefinedonpurpose sem_old sem_new with
-                                 | Some sem_inv => value_iter sem_old set_regs sem_inv ssl'
+                                 | Some sem_inv => value_iter_statements sem_old set_regs sem_inv ssl'
                                  | None => None
                                  end
     | Qcons (Swhen c ssl_true ssl_false) ssl' => match eval_hfexpr c sem_old sem_old with
-                                                 | Some (Gval (Fuint _) valc) => if is_zero valc then match value_iter sem_old set_regs sem_new ssl_false with
-                                                                                                      | Some sem_false => value_iter sem_old set_regs sem_false ssl'
+                                                 | Some (Gval (Fuint _) valc) => if is_zero valc then match value_iter_statements sem_old set_regs sem_new ssl_false with
+                                                                                                      | Some sem_false => value_iter_statements sem_old set_regs sem_false ssl'
                                                                                                       | None => None
                                                                                                       end
-                                                                                                 else match value_iter sem_old set_regs sem_new ssl_true with
-                                                                                                      | Some sem_true => value_iter sem_old set_regs sem_true ssl'
+                                                                                                 else match value_iter_statements sem_old set_regs sem_new ssl_true with
+                                                                                                      | Some sem_true => value_iter_statements sem_old set_regs sem_true ssl'
                                                                                                       | None => None
                                                                                                       end
                                                  | Some (Undefinedonpurpose (Gtyp (Fuint _))) => match make_undefined sem_old set_regs Undefinedonpurpose sem_new ssl_true with
                                                                                                  | Some sem_true => match make_undefined sem_old set_regs Undefinedonpurpose sem_true ssl_false with
-                                                                                                                    | Some sem_false => value_iter sem_old set_regs sem_false ssl'
+                                                                                                                    | Some sem_false => value_iter_statements sem_old set_regs sem_false ssl'
                                                                                                                     | None => None
                                                                                                                     end
                                                                                                  | None => None
@@ -5815,7 +5875,7 @@ Fixpoint value_iter (sem_old : VM.t hvalue) (set_regs : bool) (sem_new : VM.t hv
                                                  | Some (Needtobedefined    (Gtyp (Fuint _)))
                                                  | Some (Uninitialized      (Gtyp (Fuint _))) => match make_undefined sem_old set_regs Needtobedefined sem_new ssl_true with
                                                                                                  | Some sem_true => match make_undefined sem_old set_regs Needtobedefined sem_true ssl_false with
-                                                                                                                    | Some sem_false => value_iter sem_old set_regs sem_false ssl'
+                                                                                                                    | Some sem_false => value_iter_statements sem_old set_regs sem_false ssl'
                                                                                                                     | None => None
                                                                                                                     end
                                                                                                  | None => None
@@ -5823,6 +5883,141 @@ Fixpoint value_iter (sem_old : VM.t hvalue) (set_regs : bool) (sem_new : VM.t hv
                                                  | _ => None
                                                  end
     end.
+
+(* Connections calculate proposed next-register values alongside the wires.
+   During combinational settling registers retain their old values.  At the
+   single cycle commit, a register's declared reset takes priority over its
+   proposed next value.  Reset expressions are read in the settled old
+   environment, so all registers update simultaneously. *)
+Definition register_next_value
+  (eval : HiF.hfexpr -> option hvalue) (reg : HiF.hfreg) (proposed : hvalue)
+  : option hvalue :=
+  match reset reg with
+  | NRst => Some proposed
+  | Rst condition initial =>
+      match eval condition with
+      | Some (Gval (Fuint 1) bits)
+      | Some (Gval Freset bits)
+      | Some (Gval Fasyncreset bits) =>
+          if is_zero bits then Some proposed
+          else match eval initial with
+               | Some value => adapt_hvalue_as_type value (type reg)
+               | None => None
+               end
+      | Some (Needtobedefined (Gtyp (Fuint 1)))
+      | Some (Needtobedefined (Gtyp Freset))
+      | Some (Needtobedefined (Gtyp Fasyncreset))
+      | Some (Uninitialized (Gtyp (Fuint 1)))
+      | Some (Uninitialized (Gtyp Freset))
+      | Some (Uninitialized (Gtyp Fasyncreset)) =>
+          Some (Needtobedefined (type reg))
+      | Some (Undefinedonpurpose (Gtyp (Fuint 1)))
+      | Some (Undefinedonpurpose (Gtyp Freset))
+      | Some (Undefinedonpurpose (Gtyp Fasyncreset)) =>
+          Some (Undefinedonpurpose (type reg))
+      | _ => None
+      end
+  end.
+
+Fixpoint finish_registers
+  (eval : HiF.hfexpr -> option hvalue)
+  (sem_old : VM.t hvalue) (set_regs : bool) (sem_new : VM.t hvalue)
+  (ssl : HiF.hfstmt_seq) : option (VM.t hvalue) :=
+  match ssl with
+  | Qnil => Some sem_new
+  | Qcons st tl =>
+      let next := match st with
+      | Sreg id reg =>
+          match VM.find id sem_old, VM.find id sem_new with
+          | Some old_value, Some proposed =>
+              match (if set_regs then register_next_value eval reg proposed else Some old_value) with
+              | Some value => Some (VM.add id value sem_new)
+              | None => None
+              end
+          | _, _ => None
+          end
+      | Swhen _ yes no =>
+          match finish_registers eval sem_old set_regs sem_new yes with
+          | Some after_yes => finish_registers eval sem_old set_regs after_yes no
+          | None => None
+          end
+      | _ => Some sem_new
+      end in
+      match next with
+      | Some state => finish_registers eval sem_old set_regs state tl
+      | None => None
+      end
+  end.
+
+Definition value_iter (sem_old : VM.t hvalue) (set_regs : bool)
+  (sem_new : VM.t hvalue) (ssl : HiF.hfstmt_seq) : option (VM.t hvalue) :=
+  match value_iter_statements sem_old set_regs sem_new ssl with
+  | Some proposed =>
+      finish_registers (fun e => eval_hfexpr e sem_old sem_old)
+        sem_old set_regs proposed ssl
+  | None => None
+  end.
+
+(* An instance interface has two representations: a bundle in its parent
+   and individual ports in the child.  Transfer only the leaves driven by the
+   other side.  The port direction is reversed at the boundary; nested flips
+   are handled by replace_writeable (including arrays of bundles).
+
+   All sources come from one snapshot.  Destinations use the accumulator so
+   that sibling interfaces and a module's own ports do not overwrite each
+   other.  No registers or private memory storage are copied here. *)
+Fixpoint sync_instance_ports (ii : VarOrder.T) (ports : seq HiF.hfport)
+  (parent_old child_old parent_new child_new : VM.t hvalue)
+  : option (VM.t hvalue * VM.t hvalue) :=
+  match ports with
+  | [::] => Some (parent_new, child_new)
+  | port :: tl =>
+      let '(id, t, into_child, into_parent) :=
+        match port with
+        | Finput id t => (id, t, Sink, Source)
+        | Foutput id t => (id, t, Source, Sink)
+        end in
+      let r := Esubfield (Eid ii) id in
+      match eval_href r parent_old parent_old, VM.find id child_old,
+            VM.find ii parent_new, VM.find id child_new with
+      | Some pv, Some cv, Some parent_bundle, Some child_value =>
+          if (type_of_val pv == t) && (type_of_val cv == t) then
+            match repl_val_part r (replace_writeable into_parent)
+                    parent_bundle cv parent_old,
+                  replace_writeable into_child child_value pv with
+            | Some pb, Some cp =>
+                sync_instance_ports ii tl parent_old child_old
+                  (VM.add ii pb parent_new) (VM.add id cp child_new)
+            | _, _ => None
+            end
+          else None
+      | _, _, _, _ => None
+      end
+  end.
+
+Definition sync_circuit_ports (instances : SVM.t VarOrder.T)
+  (snapshot : SVM.t (VM.t hvalue)) : option (SVM.t (VM.t hvalue)) :=
+  SVM.fold
+    (fun path mi acc =>
+      match acc with
+      | None => None
+      | Some states =>
+          match path with
+          | [::] => Some states (* top-level inputs are supplied externally *)
+          | ii :: parent_path =>
+              match find_module mi,
+                    SVM.find parent_path snapshot, SVM.find path snapshot,
+                    SVM.find parent_path states, SVM.find path states with
+              | Some (FInmod _ ports _), Some po, Some co, Some pn, Some cn =>
+                  match sync_instance_ports ii ports po co pn cn with
+                  | Some (parent, child) =>
+                      Some (SVM.add path child (SVM.add parent_path parent states))
+                  | None => None
+                  end
+              | _, _, _, _, _ => None
+              end
+          end
+      end) instances (Some snapshot).
 
 (* Run one iteration of calculating the stabilized value of all components in the circuit.
    circuit_sem_old = values of all componentns in the circuit before the iteration
@@ -5832,7 +6027,7 @@ Fixpoint value_iter (sem_old : VM.t hvalue) (set_regs : bool) (sem_new : VM.t hv
    Result: circuit_sem_old, updated with the effects of all statements (in particular connect statements) in all modules. *)
 Definition circuit_value_iter (circuit_sem_old : SVM.t (VM.t hvalue)) (set_regs : bool) : option (SVM.t (VM.t hvalue)) :=
     match find_circuit_instances with
-    | Some fci => SVM.fold (fun (ii : SVM.key) (mi : VarOrder.T) (circuit_sem_new_or_none : option (SVM.t (VM.t hvalue))) =>
+    | Some fci => match SVM.fold (fun (ii : SVM.key) (mi : VarOrder.T) (circuit_sem_new_or_none : option (SVM.t (VM.t hvalue))) =>
                             match circuit_sem_new_or_none with
                             | Some circuit_sem_new => match SVM.find ii circuit_sem_old, SVM.find ii circuit_sem_new, find_module mi with
                                                       | Some sem_old, Some sem_new, Some (FInmod _ _ ssl) => match value_iter sem_old set_regs sem_new ssl with
@@ -5842,7 +6037,10 @@ Definition circuit_value_iter (circuit_sem_old : SVM.t (VM.t hvalue)) (set_regs 
                                                       | _, _, _ => None
                                                       end
                             | None => None
-                            end) fci (Some circuit_sem_old)
+                            end) fci (Some circuit_sem_old) with
+                   | Some evaluated => sync_circuit_ports fci evaluated
+                   | None => None
+                   end
     | None => None
     end.
 
