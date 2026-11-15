@@ -142,3 +142,6 @@ translated circuit is available for further Coq proofs.
     ├── bin/main.exe         # Translator executable
     └── demo/                # Example FIRRTL circuits (e.g. CoreSoc.hi.fir)
 ```
+
+Formal reset initialization, input domain and assertion cycle conventions are documented in
+[Formal-initialization-and-observation.md](Formal-initialization-and-observation.md).

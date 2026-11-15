@@ -650,9 +650,28 @@ Definition memory_module_type_view (m : HiF.hfmodule) : HiF.hfmodule :=
   | _ => m
   end.
 
+(* Count the actual instance graph, not only distinct module definitions.
+   Two instances of the same combinational module can occur in series. Each
+   requires its own assignment budget, plus its interface synchronization
+   budget. The root's external ports are already loaded before iteration. *)
 Definition circuit_iter_count_with_memory
-  (mml : seq HiF.hfmodule) (count : ftype -> nat) : option nat :=
-  circuit_iter_count (map memory_module_type_view mml) count.
+  (mml : seq HiF.hfmodule) (top : VarOrder.T) (count : ftype -> nat) : option nat :=
+  let typed_modules := map memory_module_type_view mml in
+  match circuit_tmap_uninferred typed_modules, find_circuit_instances mml top with
+  | Some types, Some instances =>
+      SVM.fold (fun path module_id total =>
+        match total, VM.find module_id types, find_module typed_modules module_id with
+        | Some previous, Some module_types, Some (FInmod _ ports stmts) =>
+            match max_iter_count count module_types stmts with
+            | Some assignments =>
+                let interfaces := if path == [::] then 0%nat else
+                  foldr (fun port n =>
+                    match port with Finput _ t | Foutput _ t => (count t + n)%nat end)
+                    0%nat ports in
+                Some ((previous + assignments + interfaces)%nat)
+            | None => None end
+        | _, _, _ => None end) instances (Some 0%nat)
+  | _, _ => None end.
 
 Fixpoint statements_initial_map_with_memory
   (mml : seq HiF.hfmodule) (ssl : HiF.hfstmt_seq)
@@ -759,7 +778,7 @@ Definition circuit_value_with_memory
   (external_inputs : VM.t hvalue)
   : option (SVM.t (VM.t hvalue)) :=
   match circuit_initial_map_with_memory mml mi_top previous_cycle_register_map external_inputs,
-        circuit_iter_count_with_memory mml Gtyp_connect_count with
+        circuit_iter_count_with_memory mml mi_top Gtyp_connect_count with
   | Some initial_states, Some n =>
       match circuit_value_iterator_with_memory mml mi_top n initial_states with
       | Some stabilized => circuit_value_iter_with_memory mml mi_top stabilized true
@@ -926,7 +945,7 @@ Definition circuit_value_with_choices
   (choices : invalid_choices) (cycle : nat)
   (previous : option (SVM.t (VM.t hvalue))) (inputs : VM.t hvalue) :=
   match circuit_initial_map_with_memory mml top previous inputs,
-        circuit_iter_count_with_memory mml Gtyp_connect_count with
+        circuit_iter_count_with_memory mml top Gtyp_connect_count with
   | Some initial, Some n =>
       match circuit_value_iterator_with_choices mml top choices cycle n initial with
       | Some stable => circuit_value_iter_with_choices mml top choices cycle stable true
@@ -999,7 +1018,7 @@ Fixpoint circuit_formal_iterations (mml : seq HiF.hfmodule) (top : VarOrder.T)
 Definition circuit_formal_cycle (mml : seq HiF.hfmodule) (top : VarOrder.T)
   (previous : option (SVM.t (VM.t hvalue))) (inputs : formal_inputs) :=
   match circuit_initial_map_with_memory mml top previous (formal_external_inputs inputs),
-        circuit_iter_count_with_memory mml Gtyp_connect_count with
+        circuit_iter_count_with_memory mml top Gtyp_connect_count with
   | Some initial, Some n =>
     match circuit_formal_iterations mml top inputs n initial with
     | Some stable => circuit_value_iter_with_memory_policy (formal_invalid_policy inputs)

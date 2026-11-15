@@ -3969,7 +3969,7 @@ Definition eval_binop_basic (op : ebinop) (val1 val2 : hvalue) : option hvalue :
     | Gval (Fuint          w1) val1 => match val2 with
                                        | Gval                     (Fuint          w2) val2 => match op with
                                                                                               | Badd  => Some (Gval (Fuint          (maxn w1 w2).+1) (from_N (maxn w1 w2).+1 (to_N val1  +  to_N val2)))
-                                                                                              | Bsub  => Some (Gval (Fuint          (maxn w1 w2).+1) (from_Z (maxn w1 w2).+1 (to_Z val1  -  to_Z val2)))
+                                                                                              | Bsub  => Some (Gval (Fuint          (maxn w1 w2).+1) (from_Z (maxn w1 w2).+1 (to_Zpos val1 - to_Zpos val2)))
                                                                                               | Bmul  => Some (Gval (Fuint          (w1 + w2)      ) (from_N (w1 + w2)       (to_N val1  *  to_N val2)))
                                                                                               | Bdiv  => Some (Gval (Fuint          w1             ) (from_N w1              (to_N val1  /  to_N val2)))
                                                                                               | Brem  => Some (Gval (Fuint          (minn w1 w2)   ) (from_N (minn w1 w2)    (to_N val1 mod to_N val2)))
@@ -6063,7 +6063,10 @@ Fixpoint circuit_value_iterator (iter_number : nat) (circuit_sem : SVM.t (VM.t h
                          end
     end.
 
-(* counts the number of iterations that is needed at most, based on the the connect statements in ssl *)
+(* Count every combinational assignment, including nodes.  Each value pass
+   reads the previous environment, so a node dependency consumes one pass
+   just like a connection; ignoring nodes can truncate a long DAG before
+   its values reach register inputs. *)
 Fixpoint max_iter_count (connect_count : ftype -> nat) (tmap_mi : VM.t (ftype * fcomponent)) (ssl : HiF.hfstmt_seq) : option nat :=
     match ssl with
     | Qnil => Some 0
@@ -6074,7 +6077,9 @@ Fixpoint max_iter_count (connect_count : ftype -> nat) (tmap_mi : VM.t (ftype * 
     end
 with max_iter_count_stmt' (connect_count : ftype -> nat) (tmap_mi : VM.t (ftype * fcomponent)) (s : HiF.hfstmt) : option nat :=
     match s with
-    | Sfcnct r e => option_map connect_count (type_of_ref None tmap_mi r)
+    | Snode v _ => option_map connect_count (type_of_ref None tmap_mi (Eid v))
+    | Sfcnct r _
+    | Sinvalid r => option_map connect_count (type_of_ref None tmap_mi r)
     | Swhen _ ssl_true ssl_false => match max_iter_count connect_count tmap_mi ssl_true, max_iter_count connect_count tmap_mi ssl_false with
                                     | Some count_true, Some count_false => Some (count_true + count_false)
                                     | _, _ => None
@@ -7420,12 +7425,28 @@ Proof.
     by apply (Logic.eq_trans H1), H0, H2.
 * clear max_iter_count_stmt'_not_none.
   destruct s as [|w t|r rt|m mt|ii mi|n e|r e|r|c sst ssf] ; try done ; simpl ; intros.
+  + (* Snode *)
+    cbn [statement_tmap] in H.
+    destruct (VM.find n tmap_old) as [old|] ;
+      destruct (type_of_expr (Some sc_old) tmap_old e) as [tn|] ; try discriminate H.
+    injection H ; clear H ; intros ; subst sc_new tmap_new.
+    specialize (H0 n).
+    rewrite VM.Lemmas.find_add_eq in H0 ; last by unfold VM.M.SE.eq.
+    have Hfind : VM.find n tmap_super = Some (tn, Node).
+    { symmetry. apply H0. discriminate. }
+    rewrite Hfind. discriminate.
   + (* Sfcnct *)
     intros.
     specialize (type_of_ref_super_tmap (tmap_small := tmap_old) (tmap_large := tmap_super)) with (sc := sc_old) (r := r) ; intro.
     destruct (type_of_ref (Some sc_old) tmap_old r) as [tr|] ; last by discriminate H.
     destruct (type_of_expr (Some sc_old) tmap_old e) as [te|] ; last by discriminate H.
     destruct (ftype_mux false tr te) as [tre|] ; simpl in H ; last by discriminate H.
+    injection H ; clear H ; intros ; subst sc_new tmap_new.
+    by rewrite -(type_of_ref_unscope (tmap := tmap_super) (sc := sc_old) (r := r)) // -H1 //.
+  + (* Sinvalid *)
+    cbn [statement_tmap] in H.
+    specialize (type_of_ref_super_tmap (tmap_small := tmap_old) (tmap_large := tmap_super)) with (sc := sc_old) (r := r) ; intro.
+    destruct (type_of_ref (Some sc_old) tmap_old r) as [tr|] ; last by discriminate H.
     injection H ; clear H ; intros ; subst sc_new tmap_new.
     by rewrite -(type_of_ref_unscope (tmap := tmap_super) (sc := sc_old) (r := r)) // -H1 //.
   + (* Swhen *)
