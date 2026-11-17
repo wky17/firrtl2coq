@@ -2348,13 +2348,13 @@ Section Lemmas.
                 dcase_full_adder_zip true tl0 zs;
                 move : (IH ys zs false true)
                 => /andP [_ /eqP Heq]; move : Heq ];
-              (rewrite /full_adder Hadder Hadder0 Hadder1
+              ((rewrite /full_adder Hadder Hadder0 Hadder1
                        -[(c, tl).2]/(tl) -[(c0,tl0).2]/(tl0)
                        -[(c1, tl1).2]/(tl1)
-                       Hadder2 Hadder3 Hadder4 /= => <- <-
-            || rewrite /full_adder Hadder Hadder0
+                       Hadder2 Hadder3 Hadder4 /=; repeat (move=> <-))
+            || (rewrite /full_adder Hadder Hadder0
                        -[(c, tl).2]/(tl) -[(c0,tl0).2]/(tl0)
-                       Hadder1 Hadder2 /= => <-);
+                       Hadder1 Hadder2 /=; repeat (move=> <-)));
               apply /andP; done .
           - case; case; rewrite (lock zip) /= -(lock zip);
               [ dcase_full_adder_zip true ys zs;
@@ -2391,13 +2391,13 @@ Section Lemmas.
                 dcase_full_adder_zip true tl0 zs;
                 move : (IH ys zs true false)
                 => /andP [/eqP Heq _]; move : Heq ];
-              (rewrite /full_adder Hadder Hadder0 Hadder1
+              ((rewrite /full_adder Hadder Hadder0 Hadder1
                        -[(c, tl).2]/(tl) -[(c0,tl0).2]/(tl0)
                        -[(c1, tl1).2]/(tl1) 
-                       Hadder2 Hadder3 Hadder4 /= => <- <-
-            || rewrite /full_adder Hadder Hadder0
+                       Hadder2 Hadder3 Hadder4 /=; repeat (move=> <-))
+            || (rewrite /full_adder Hadder Hadder0
                        -[(c, tl).2]/(tl) -[(c0,tl0).2]/(tl0)
-                       Hadder1 Hadder2 /= => <-);
+                       Hadder1 Hadder2 /=; repeat (move=> <-)));
               apply /andP; done .
           - case; case; rewrite (lock zip) /= -(lock zip);
               [ dcase_full_adder_zip true ys zs;
@@ -2500,13 +2500,13 @@ Section Lemmas.
                 dcase_full_adder_zip false tl0 zs;
                 move : (IH ys zs false false)
                 => /andP [/eqP Heq _]; move : Heq];
-              (rewrite /full_adder Hadder Hadder0 Hadder1
+              ((rewrite /full_adder Hadder Hadder0 Hadder1
                        -[(c, tl).2]/(tl) -[(c0,tl0).2]/(tl0)
                        -[(c1, tl1).2]/(tl1) 
-                       Hadder2 Hadder3 Hadder4 /= => <- <-
-            || rewrite /full_adder Hadder Hadder0
+                       Hadder2 Hadder3 Hadder4 /=; repeat (move=> <-))
+            || (rewrite /full_adder Hadder Hadder0
                        -[(c, tl).2]/(tl) -[(c0,tl0).2]/(tl0)
-                       Hadder1 Hadder2 /= => <-);
+                       Hadder1 Hadder2 /=; repeat (move=> <-)));
               apply /andP; done .
           - case; case; rewrite (lock zip) /= -(lock zip);
               [ dcase_full_adder_zip false ys zs;
@@ -2545,7 +2545,7 @@ Section Lemmas.
                 rewrite /full_adder Hadder Hadder0 Hadder1
                         -[(c, tl).2]/(tl) -[(c0,tl0).2]/(tl0)
                         -[(c1, tl1).2]/(tl1) 
-                        Hadder2 Hadder3 Hadder4 /= => <- <-
+                        Hadder2 Hadder3 Hadder4 /=; repeat (move=> <-)
               | dcase_full_adder_zip true xs tl;
                 dcase_full_adder_zip false tl0 zs;
                 dcase_full_adder_zip true tl1 zs;
@@ -2554,7 +2554,7 @@ Section Lemmas.
                 rewrite /full_adder Hadder Hadder0 Hadder1
                         -[(c, tl).2]/(tl) -[(c0,tl0).2]/(tl0)
                         -[(c1, tl1).2]/(tl1) 
-                        Hadder2 Hadder3 Hadder4 /= => <- <-
+                        Hadder2 Hadder3 Hadder4 /=; repeat (move=> <-)
               | dcase_full_adder_zip false xs tl;
                 dcase_full_adder_zip false tl0 zs;
                 move : (IH ys zs false false)
@@ -5337,8 +5337,8 @@ Section Lemmas.
       move => Hgt2 Hgt1. 
       move : (Z.mul_le_mono_nonneg _ _ _ _ (Z.lt_le_incl _ _ (pow2_nat2z_gt0 (sig_bits bs1).-1)) Hgt1 (Z.lt_le_incl _ _ (pow2_nat2z_gt0 (sig_bits bs2).-1)) Hgt2).
       rewrite -Z.pow_add_r; try apply Nat2Z.is_nonneg.
-      rewrite -Nat2Z.inj_add Nat.add_pred_l; last apply (nesym (lt_0_neq _ (ltP Hsg1gt0))).
-      rewrite Nat.add_pred_r; last apply (nesym (lt_0_neq _ (ltP Hsg2gt0))). 
+      rewrite -Nat2Z.inj_add Nat.add_pred_l; last apply (nesym (Nat.lt_neq 0 _ (ltP Hsg1gt0))).
+      rewrite Nat.add_pred_r; last apply (nesym (Nat.lt_neq 0 _ (ltP Hsg2gt0))).
       have -> : (sig_bits bs1 + sig_bits bs2)%coq_nat = (sig_bits bs1 + sig_bits bs2) by done. rewrite -subn2.
       move => Hmult.
       move/leP : Hszsg; rewrite Nat2Z.inj_le; move => Hszsg.

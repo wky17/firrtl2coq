@@ -28,4 +28,4 @@ Definition adder_module : @fmodule VarOrder.T :=
              (@Eref VarOrder.T 3)) ].
 
 Definition adder_circuit : @fcircuit VarOrder.T :=
-  @Fcircuit VarOrder.T 0 [:: adder_module].
+  @Fcircuit VarOrder.T 1 [:: adder_module].

@@ -11,7 +11,7 @@
 %token STM_WIRE STM_REG REG_WITH REG_RST REG_RSTARR STM_CMEM STM_MEM SUB_FIELD UINT SINT INT CLOCK ASSERT ASSUME
 %token EXPR_VALIDIF EXPR_ADD EXPR_AND EXPR_ANDR EXPR_ASCLOCK EXPR_ASFIXED EXPR_ASSINT EXPR_ASUINT EXPR_CAT EXPR_CVT EXPR_DIV EXPR_DSHL EXPR_DSHR EXPR_EQ EXPR_GEQ EXPR_GT EXPR_HEAD EXPR_LEQ EXPR_LT EXPR_MUL EXPR_MUX EXPR_NEG EXPR_NEQ EXPR_NOT EXPR_OR EXPR_ORR EXPR_PAD EXPR_REM EXPR_SHL EXPR_SHR EXPR_SUB EXPR_TAIL EXPR_XOR EXPR_XORR EXPR_BITS
 %token EOF
-%token /*M_OLD M_NEW*/ M_UNDEFINED ASYNC RESET BRA_OPEN BRA_CLOSE FLIP EXPR_ASASYNC FULL STM_CONNECT0 STM_INVALID0 STM_REGRESET0 STM_CMEM_INFER STM_CMEM_READ STM_CMEM_WRITE STM_SMEM
+%token M_OLD M_NEW M_UNDEFINED ASYNC RESET BRA_OPEN BRA_CLOSE FLIP EXPR_ASASYNC FULL STM_CONNECT0 STM_INVALID0 STM_REGRESET0 STM_CMEM_INFER STM_CMEM_READ STM_CMEM_WRITE STM_SMEM
 
 %start file
 %type <Ast.file> file
@@ -87,11 +87,11 @@ typ_def
   | BRA_OPEN btyp_def BRA_CLOSE          { Btyp ($2) }
 ;
 
-/*ruw 
+ruw 
   : M_OLD                                { Coq_old }
   | M_NEW                                { Coq_new }
   | M_UNDEFINED                          { Coq_undefined }
-;*/
+;
 /* statement */
 
 statements
@@ -116,14 +116,14 @@ statement
                                          { Sreg ($2, mk_freg $4 $6 $8 $10) }
   | ref STM_INVALID                      { Sinvalid ($1) }
   | STM_INVALID0 ref                     { Sinvalid ($2) }
-  | STM_MEM symbol KEYWORD STM_DATATYPE REG_RSTARR typ_def STM_DEPTH REG_RSTARR numeral STM_READ_L REG_RSTARR numeral STM_WRITE_L REG_RSTARR numeral memrdports memwrports STM_READWRITE REG_RSTARR M_UNDEFINED
+  | STM_MEM symbol KEYWORD STM_DATATYPE REG_RSTARR typ_def STM_DEPTH REG_RSTARR numeral STM_READ_L REG_RSTARR numeral STM_WRITE_L REG_RSTARR numeral memrdports memwrports STM_READWRITE REG_RSTARR ruw
                                          { Smem ($2, mk_fmem $6 $9 $12 $15 $16 $17 Coq_undefined)}
   /*| STM_MEM symbol KEYWORD STM_DATATYPE REG_RSTARR typ_def STM_DEPTH REG_RSTARR numeral STM_READ_L REG_RSTARR numeral STM_WRITE_L REG_RSTARR numeral STM_READ REG_RSTARR symbols STM_WRITE REG_RSTARR symbols STM_READWRITE REG_RSTARR ruw
                                            { Smem (mk_fmem $2 $6 $9 $12 $15 $18 $21 $24)}*/
 
   | STM_CMEM symbol KEYWORD typ_def       { Swire ($2, $4) }
   | STM_SMEM symbol KEYWORD typ_def      { Swire ($2, $4) }
-  | STM_SMEM symbol KEYWORD typ_def SPRT M_UNDEFINED      { Swire ($2, $4) }
+  | STM_SMEM symbol KEYWORD typ_def SPRT ruw      { Swire ($2, $4) }
   | STM_CMEM_INFER symbol STM_NASS expr SPRT expr
                                          { Snode ($2, $4) }
   | STM_CMEM_READ symbol STM_NASS expr SPRT ref

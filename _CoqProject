@@ -25,4 +25,6 @@ src/HiFirrtl_with_implicit_widths.v
 src/Semantics_with_implicit_widths.v
 src/Semantics_for_circuit.v
 src/Semantics_with_memory.v
+src/LoCircuit.v
 src/Extract.v
+src/LoVerification.v

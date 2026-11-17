@@ -59,6 +59,7 @@ and token = parse
 | "0b" (binary_digit+ as str)           { upd_cnum lexbuf; BINARY0 str }*)
 | "o" (numeral+ as str)                 { upd_cnum lexbuf; OCTAL str }
 | "o" (s_numeral+ as str)               { upd_cnum lexbuf; S_OCTAL str }
+| "head"                               { upd_cnum lexbuf; EXPR_HEAD}
 | "h" (hex+ as str)                     { upd_cnum lexbuf; HEX_DECIMAL str }
 | "h" (s_hex+ as str)                   { upd_cnum lexbuf; S_HEX_DECIMAL str }
 | ':'                                   { upd_cnum lexbuf; KEYWORD }
@@ -105,7 +106,6 @@ and token = parse
 | "orr"                                 { upd_cnum lexbuf; EXPR_ORR}
 | "xorr"                                { upd_cnum lexbuf; EXPR_XORR}
 | "tail"                                { upd_cnum lexbuf; EXPR_TAIL}
-| "ahead"                               { upd_cnum lexbuf; EXPR_HEAD}
 | "pad"                                 { upd_cnum lexbuf; EXPR_PAD}
 | "shl"                                 { upd_cnum lexbuf; EXPR_SHL}
 | "shr"                                 { upd_cnum lexbuf; EXPR_SHR}
@@ -140,8 +140,8 @@ and token = parse
 | "reader"                              { upd_cnum lexbuf; STM_READ}
 | "writer"                              { upd_cnum lexbuf; STM_WRITE}
 | "read-under-write"                    { upd_cnum lexbuf; STM_READWRITE}
-(*| "new"                                 { upd_cnum lexbuf; M_NEW}
-| "old"                                 { upd_cnum lexbuf; M_OLD}*)
+| "new"                                 { upd_cnum lexbuf; M_NEW}
+| "old"                                 { upd_cnum lexbuf; M_OLD}
 | "undefined"                           { upd_cnum lexbuf; M_UNDEFINED}
 
 | "gt"                                  { upd_cnum lexbuf; EXPR_GT }

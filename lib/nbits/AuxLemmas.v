@@ -69,7 +69,7 @@ Qed.
 Lemma ltn_leq_trans n m p : m < n -> n <= p -> m < p.
 Proof.
   move=> Hmn Hnp. move/ltP: Hmn => Hmn. move/leP: Hnp => Hnp. apply/ltP.
-  exact: (Lt.lt_le_trans _ _ _ Hmn Hnp).
+  exact: (Nat.lt_le_trans _ _ _ Hmn Hnp).
 Qed.
 
 Lemma sub_diff_add_rdiff m n : n - (n - m) + (m - n) = m.
