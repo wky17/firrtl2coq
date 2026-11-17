@@ -33,25 +33,26 @@ The following versions are known to work:
 
 | Dependency | Version |
 |------------|---------|
-| [Coq](https://coq.inria.fr) | 8.16.0 |
-| [MathComp](https://github.com/math-comp/math-comp) | 1.15.0 |
+| [Coq](https://coq.inria.fr) | 8.20.1 |
+| [MathComp](https://github.com/math-comp/math-comp) | 1.19.0 |
 | [OCaml](https://ocaml.org) | 4.14.2 |
-| [dune](https://dune.build) | any recent version |
+| [dune](https://dune.build) | >= 3.16 |
 
 We recommend installing Coq, MathComp and OCaml through
 [opam](https://opam.ocaml.org):
 
 ```bash
-opam switch create firrtl2coq 4.14.2
-eval $(opam env)
-opam install coq.8.16.0 coq-mathcomp-ssreflect.1.15.0 dune
+opam switch create firrtl2coq-8.20.1 4.14.2
+opam repository add coq-released https://coq.inria.fr/opam/released --switch=firrtl2coq-8.20.1
+eval $(opam env --switch=firrtl2coq-8.20.1 --set-switch)
+opam install coq.8.20.1 coq-mathcomp-ssreflect.1.19.0 coq-mathcomp-algebra.1.19.0 dune zarith
 ```
 
 If you already have a compatible opam switch, simply install the missing
 packages:
 
 ```bash
-opam install coq.8.16.0 coq-mathcomp-ssreflect.1.15.0 dune
+opam install coq.8.20.1 coq-mathcomp-ssreflect.1.19.0 coq-mathcomp-algebra.1.19.0 dune zarith
 ```
 
 ---
@@ -71,7 +72,8 @@ Generate the `Makefile` from `_CoqProject` and build all Coq files:
 
 ```bash
 coq_makefile -f _CoqProject -o Makefile
-make
+make clean # required after switching Coq versions
+make -j4
 ```
 
 After a successful build, the minimal example `TestAdder.v` should compile.
@@ -98,7 +100,7 @@ cd src/ocaml
 dune build
 ```
 
-This produces the executable `./bin/main.exe` (relative to `src/ocaml`).
+This produces the executable `_build/default/bin/main.exe` (relative to `src/ocaml`).
 
 ---
 

@@ -194,7 +194,7 @@ Section NatLemmas.
     move/ltP: Hmn => Hmn.
     move/leP: Hnp => Hnp.
     apply/ltP.
-    exact: (Lt.lt_le_trans _ _ _ Hmn Hnp).
+    exact: (Nat.lt_le_trans _ _ _ Hmn Hnp).
   Qed.
 
   Lemma ltn_addn m1 m2 n1 n2 : m1 < n1 -> m2 < n2 -> m1 + m2 < n1 + n2.
@@ -271,7 +271,7 @@ Section NatLemmas.
     - move: (proj1 (Nat.odd_spec n) H) => {H} [m H].
       rewrite {n}H.
       have: (((2 * m) + 1).+1 = 2 * (1 + m)) by ring.
-      move=> ->. rewrite Nat.div2_double (plus_comm (2 * m) 1)
+      move=> ->. rewrite Nat.div2_double (Nat.add_comm (2 * m) 1)
                          Nat.div2_succ_double.
       reflexivity.
     - move/negPn: H => H. move: (proj1 (Nat.even_spec n) H) => {H} [m H].

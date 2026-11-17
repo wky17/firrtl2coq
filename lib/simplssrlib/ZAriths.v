@@ -821,7 +821,7 @@ Section ZLemmas.
   Proof.
     move=> Hn1.
     move: (not_eq_sym (Z.lt_neq _ _ Hn1)) => Hn2.
-    move: (Z_div_mod_eq (n * 2 - 1) n (Z.lt_gt _ _ Hn1)).
+    move: (Z.div_mod (n * 2 - 1) n Hn2).
     rewrite (Zmod_mul2_sub1 Hn1).
     replace (n * 2 - 1) with (n + (n - 1)) by ring.
     move=> H. move: (proj1 (Z.add_cancel_r _ _ _) H) => {H} H.
@@ -1013,9 +1013,7 @@ Section ZLemmas.
         apply: (proj1 (Z.add_move_l (Z.of_nat n mod Z.of_nat m)
                                     (Z.of_nat n / Z.of_nat m * Z.of_nat m)
                                     (Z.of_nat n))).
-        rewrite Z.add_comm Z.mul_comm -Z_div_mod_eq; first reflexivity.
-        change 0 with (Z.of_nat 0). apply: (proj1 (Nat2Z.inj_gt _ _)).
-        apply: gtn_gt. rewrite lt0n. exact: Hm0.
+        rewrite Z.add_comm Z.mul_comm -(Z.div_mod _ _ HneZ). reflexivity.
   Qed.
 
   Corollary Nat2Z_inj_div (n m : nat) :
