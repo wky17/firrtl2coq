@@ -1003,12 +1003,357 @@ Definition formal_invalid_policy (inputs : formal_inputs) (path : SVM.key)
   fun site t => input_value_of_type
     (fun leaf width => proj1_sig (formal_symbolic_inputs inputs path site leaf width)) t [::].
 
+
+(* Formal validif semantics: named width-bounded sources, stable within each
+   cycle and independent by instance and syntax occurrence. Legacy simulation
+   entry points above retain their existing invalid-marker behavior. The flat
+   CoreSoc coverage certificate places all 84 validifs in node expressions.
+   Dynamic sink replacement and bidirectional reference indices still use
+   legacy paths; no full high-FIRRTL undefined-behavior equivalence is claimed. *)
+Definition validif_policy_result (invalid : invalid_value_policy) site
+ (condition : option hvalue) (result_type : option ftype) (body : option hvalue) :=
+ match result_type with
+ | Some (Gtyp Fclock) => body
+ | Some typ => match condition with
+   | Some (Gval (Fuint _) bits) =>
+       if is_zero bits then Some (invalid site typ) else body
+   | Some (Needtobedefined (Gtyp (Fuint _)))
+   | Some (Uninitialized (Gtyp (Fuint _))) => Some (Needtobedefined typ)
+   | Some (Undefinedonpurpose (Gtyp (Fuint _))) => Some (Undefinedonpurpose typ)
+   | _ => None end
+ | None => None end.
+
+
+Fixpoint validif_address_pairs (address : seq nat) : seq nat :=
+ match address with [::] => [::] | head :: tail => head :: 0 :: validif_address_pairs tail end.
+Definition validif_source_address (address : seq nat) : seq nat :=
+ 1 :: 1 :: 1 :: 1 :: validif_address_pairs address.
+Definition validif_raw_address (scope : seq nat) (statement context : nat) (children : seq nat) :=
+ size scope :: (scope ++ statement :: context :: children).
+Definition isolated_validif_policy (invalid : invalid_value_policy)
+  : invalid_value_policy :=
+ fun site typ => invalid (validif_source_address site) typ.
+Fixpoint eval_href_validif_policy (invalid : invalid_value_policy) (site : seq nat) (mm : memory_map) (r : HiF.href) (sem_old sem_new: VM.t hvalue) {struct r} : option hvalue :=
+  match r with
+  | Eid v => VM.find v sem_new
+  | Esubfield parent field =>
+      match parent with
+      | Esubfield (Eid mem) port =>
+          if is_memory_data_port false mm mem port field then
+            eval_memory_reader_data mm mem port sem_old sem_new
+          else read_bundle_field (eval_href_validif_policy invalid (rcons site 0) mm parent sem_old sem_new) field
+      | _ => read_bundle_field (eval_href_validif_policy invalid (rcons site 0) mm parent sem_old sem_new) field
+      end
+  | Esubindex r' n => match eval_href_validif_policy invalid (rcons site 0) mm r' sem_old sem_new with
+                      | Some av => match convert_to_array_value av with
+                                   | Some (_, fv) => (fix aux fx m := match fx, m with
+                                                                      | Acons t fxs, m'.+1 => aux fxs m'
+                                                                      | Acons t _, 0 => Some t 
+                                                                      | _, _ => None
+                                                                      end) fv n
+                                   | _ => None
+                                   end
+                      | _ => None
+                      end
+  | Esubaccess r' e => match eval_hfexpr_validif_policy invalid (rcons site 1) mm e sem_old sem_old with
+                       | Some (Gval (Fuint _) val) => match eval_href_validif_policy invalid (rcons site 0) mm r' sem_old sem_new with
+                                                      | Some av => match convert_to_array_value av with 
+                                                                   | Some (_, fv) => (fix aux fx m := match fx, m with
+                                                                                                      | Acons t fxs, m'.+1 => aux fxs m'
+                                                                                                      | Acons t _, 0 => Some t 
+                                                                                                      | _, _ => None
+                                                                                                      end) fv (to_nat val)
+                                                                   | None => None
+                                                                   end
+                                                      | None => None
+                                                      end
+                       | Some (Needtobedefined (Gtyp (Fuint _)))
+                       | Some (Uninitialized (Gtyp (Fuint _))) => match eval_type_of_ref r' sem_new with
+                                                                  | Some (Atyp elt _) => Some (Needtobedefined elt)
+                                                                  | _ => None
+                                                                  end
+                       | Some (Undefinedonpurpose (Gtyp (Fuint _))) => match eval_type_of_ref r' sem_new with
+                                                                       | Some (Atyp elt _) => Some (Undefinedonpurpose elt)
+                                                                       | _ => None
+                                                                       end
+                       | _ => None
+                       end
+  end
+(* Expression evaluation, value *)
+with eval_hfexpr_validif_policy (invalid : invalid_value_policy) (site : seq nat) (mm : memory_map) (exp : HiF.hfexpr) (sem_old sem_new : VM.t hvalue) {struct exp} : option hvalue :=
+  match exp with
+  | Econst t c => match t with
+                  | Fuint w1 => if (size c) > w1 then None else Some (Gval (Fuint w1) (zext_to w1 c))
+                  | Fsint w2 => if (size c) > w2 then None else Some (Gval (Fsint w2) (sext_to w2 c))
+                  | _ => None
+                  end
+  | Eref r => eval_href_validif_policy invalid (rcons site 0) mm r sem_old sem_new
+  | Evalidif c e => validif_policy_result invalid site
+      (eval_hfexpr_validif_policy invalid (rcons site 0) mm c sem_old sem_new)
+      (eval_type_of_expr e sem_new)
+      (eval_hfexpr_validif_policy invalid (rcons site 1) mm e sem_old sem_new)
+  | Ecast AsUInt e => match eval_hfexpr_validif_policy invalid (rcons site 1) mm e sem_old sem_new with
+                      | Some (Gval (Fuint          w) val)
+                      | Some (Gval (Fsint          w) val) => Some (Gval (Fuint w) val)
+                      | Some (Gval _                  val) => Some (Gval (Fuint 1) val)
+                      | Some (Undefinedonpurpose (Gtyp (Fuint          w)))
+                      | Some (Undefinedonpurpose (Gtyp (Fsint          w))) => Some (Undefinedonpurpose (Gtyp (Fuint          w)))
+                      | Some (Undefinedonpurpose (Gtyp _                 )) => Some (Undefinedonpurpose (Gtyp (Fuint          1)))
+                      | Some (Needtobedefined    (Gtyp (Fuint          w)))
+                      | Some (Needtobedefined    (Gtyp (Fsint          w)))
+                      | Some (Uninitialized      (Gtyp (Fuint          w)))
+                      | Some (Uninitialized      (Gtyp (Fsint          w))) => Some (Needtobedefined    (Gtyp (Fuint          w)))
+                      | Some (Needtobedefined    (Gtyp _                 ))
+                      | Some (Uninitialized      (Gtyp _                 )) => Some (Needtobedefined    (Gtyp (Fuint          1)))
+                      | _ => None
+                      end
+  | Ecast AsSInt e => match eval_hfexpr_validif_policy invalid (rcons site 1) mm e sem_old sem_new with 
+                      | Some (Gval (Fuint          w) val)
+                      | Some (Gval (Fsint          w) val) => Some (Gval (Fsint w) val)
+                      | Some (Gval _                  val) => Some (Gval (Fsint          1) val)
+                      | Some (Undefinedonpurpose (Gtyp (Fuint          w)))
+                      | Some (Undefinedonpurpose (Gtyp (Fsint          w))) => Some (Undefinedonpurpose (Gtyp (Fsint          w)))
+                      | Some (Undefinedonpurpose (Gtyp _                 )) => Some (Undefinedonpurpose (Gtyp (Fsint          1)))
+                      | Some (Needtobedefined    (Gtyp (Fuint          w)))
+                      | Some (Needtobedefined    (Gtyp (Fsint          w)))
+                      | Some (Uninitialized      (Gtyp (Fuint          w)))
+                      | Some (Uninitialized      (Gtyp (Fsint          w))) => Some (Needtobedefined    (Gtyp (Fsint          w)))
+                      | Some (Needtobedefined    (Gtyp _                 ))
+                      | Some (Uninitialized      (Gtyp _                 )) => Some (Needtobedefined    (Gtyp (Fsint          1)))
+                      | _ => None
+                      end
+  | Ecast AsClock e => match eval_hfexpr_validif_policy invalid (rcons site 1) mm e sem_old sem_new with 
+                       | Some (Gval _ val) => Some (Gval Fclock [::lsb val])
+                       | Some (Undefinedonpurpose (Gtyp _)) => Some (Undefinedonpurpose (Gtyp Fclock))
+                       | Some (Needtobedefined    (Gtyp _))
+                       | Some (Uninitialized      (Gtyp _)) => Some (Needtobedefined    (Gtyp Fclock))
+                       | _ => None
+                       end
+  | Ecast AsAsync e => match eval_hfexpr_validif_policy invalid (rcons site 1) mm e sem_old sem_new with
+                       | Some (Gval _ val) => Some (Gval Fasyncreset [::lsb val])
+                       | Some (Undefinedonpurpose (Gtyp _)) => Some (Undefinedonpurpose (Gtyp Fasyncreset))
+                       | Some (Needtobedefined    (Gtyp _))
+                       | Some (Uninitialized      (Gtyp _)) => Some (Needtobedefined    (Gtyp Fasyncreset))
+                       | _ => None
+                       end
+(*| Ecast AsReset e => match eval_hfexpr_validif_policy invalid (rcons site 1) mm e sem_old with Some (Gval (Fuint 1) val) => Some (Gval Freset [::lsb val]) | _ => None end *)
+  | Eprim_binop op e1 e2 => match eval_hfexpr_validif_policy invalid (rcons site 1) mm e1 sem_old sem_new, eval_hfexpr_validif_policy invalid (rcons site 2) mm e2 sem_old sem_new with
+                            | Some val1, Some val2 => eval_binop op val1 val2
+                            | _, _ => None
+                            end
+  | Eprim_unop op e1 => match eval_hfexpr_validif_policy invalid (rcons site 1) mm e1 sem_old sem_new with
+                        | Some val => eval_unop op val
+                        | None => None
+                        end
+  | Emux c e1 e2 => match eval_hfexpr_validif_policy invalid (rcons site 0) mm c sem_old sem_new with
+                    | Some (Gval (Fuint _) valc) => if is_zero valc then match eval_hfexpr_validif_policy invalid (rcons site 2) mm e2 sem_old sem_new, eval_type_of_expr e1 sem_new with
+                                                                         | Some val2, Some ty1 => extend_hvalue_as_type val2 ty1
+                                                                         | _, _ => None
+                                                                         end
+                                                                    else match eval_hfexpr_validif_policy invalid (rcons site 1) mm e1 sem_old sem_new, eval_type_of_expr e2 sem_new with
+                                                                         | Some val1, Some ty2 => extend_hvalue_as_type val1 ty2
+                                                                         | _, _ => None
+                                                                         end
+                    | Some (Undefinedonpurpose (Gtyp (Fuint _))) => match eval_type_of_expr e1 sem_new, eval_type_of_expr e2 sem_new with (* need to find result type *)
+                                                                    | Some ft1, Some ft2 => option_map Undefinedonpurpose (ftype_mux true ft1 ft2)
+                                                                    | _, _ => None
+                                                                    end
+                    | Some (Needtobedefined    (Gtyp (Fuint _)))
+                    | Some (Uninitialized      (Gtyp (Fuint _))) => match eval_type_of_expr e1 sem_new, eval_type_of_expr e2 sem_new with (* need to find result type *)
+                                                                    | Some ft1, Some ft2 => option_map Needtobedefined    (ftype_mux true ft1 ft2)
+                                                                    | _, _ => None
+                                                                    end
+                    | _ => None
+                    end
+  end.
+
+Definition formal_connect_bundle (invalid : invalid_value_policy) (site : seq nat) (mm : memory_map)
+ (r : HiF.href) (e : HiF.hfexpr) (sem_old sem_new : VM.t hvalue) : option (VM.t hvalue) :=
+ match VM.find (HiF.base_ref r) sem_new, eval_type_of_ref r sem_new,
+       eval_hfexpr_validif_policy (isolated_validif_policy invalid) site mm e sem_old sem_old with
+ | Some old_base_val, Some tor, Some new_val =>
+   match adapt_hvalue_as_type new_val tor with
+   | Some new_val => option_map ((VM.add (HiF.base_ref r))^~ sem_new)
+       (repl_val_part r (fun (_ value : hvalue) => Some value) old_base_val new_val sem_old)
+   | None => None end
+ | _, _, _ => None end.
+
+Definition formal_connect (invalid : invalid_value_policy) (site : seq nat) (mm : memory_map) (set_regs : bool)
+ (r : HiF.href) (e : HiF.hfexpr) (sem_old sem_new : VM.t hvalue) : option (VM.t hvalue) :=
+ match r with
+ | Esubfield (Esubfield (Eid mem) port) field =>
+   if is_memory_data_port true mm mem port field then
+     match formal_connect_bundle invalid site mm r e sem_old sem_new,
+           eval_hfexpr_validif_policy (isolated_validif_policy invalid) site mm e sem_old sem_old with
+     | Some next, Some value => write_memory_data mm mem port value set_regs sem_old next
+     | _, _ => None end
+   else formal_connect_bundle invalid site mm r e sem_old sem_new
+ | _ => formal_connect_bundle invalid site mm r e sem_old sem_new
+ end.
+
+Fixpoint formal_statements
+  (invalid : invalid_value_policy) (scope : seq nat) (position : nat) (mm : memory_map) (sem_old : VM.t hvalue) (set_regs : bool) (sem_new : VM.t hvalue) (ssl : HiF.hfstmt_seq) {struct ssl} : option (VM.t hvalue) :=
+    match ssl with
+    | Qnil => Some sem_new
+    | Qcons Sskip ssl'
+    | Qcons (Sinst _ _) ssl' => formal_statements invalid scope (S position) mm sem_old set_regs sem_new ssl'
+    | Qcons (Swire w t) ssl' => formal_statements invalid scope (S position) mm sem_old set_regs (VM.add w (Needtobedefined t) sem_new) ssl'
+    | Qcons (Sreg r rt) ssl' => match VM.find r sem_old with
+                                | Some old_r => formal_statements invalid scope (S position) mm sem_old set_regs (VM.add r old_r sem_new) ssl'
+                                | None => None
+                                end
+    | Qcons (Smem m fm) ssl' => match VM.find m sem_old with
+                                | Some old_m => formal_statements invalid scope (S position) mm sem_old set_regs (VM.add m old_m sem_new) ssl'
+                                | None => None
+                                end
+    | Qcons (Snode n e) ssl' => match eval_hfexpr_validif_policy (isolated_validif_policy invalid) (validif_raw_address scope position 0 [::]) mm e sem_old sem_old with
+                                | Some hval => formal_statements invalid scope (S position) mm sem_old set_regs (VM.add n hval sem_new) ssl'
+                                | None => None
+                                end
+    | Qcons (Sfcnct r (Eref r')) ssl' =>
+                                         (* A writer data sink must commit even when its RHS is a reference. *)
+                                         match (if is_memory_writer_ref mm r then
+                                           formal_connect invalid (validif_raw_address scope position 0 [::]) mm set_regs r (Eref r') sem_old sem_new
+                                         else bidirectional_connect_with_memory mm r r' sem_old sem_new) with
+                                         | Some sem_cnct => formal_statements invalid scope (S position) mm sem_old set_regs sem_cnct ssl'
+                                         | None => None
+                                         end
+    | Qcons (Sfcnct r e) ssl' => (* unidirectional connect; must be passive *) 
+                                 match formal_connect invalid (validif_raw_address scope position 0 [::]) mm set_regs r e sem_old sem_new with
+                                 | Some sem_cnct => formal_statements invalid scope (S position) mm sem_old set_regs sem_cnct ssl'
+                                 | None => None
+                                 end
+    | Qcons (Sinvalid r) ssl' => match invalidate_ref_with_memory mm set_regs r (invalid (rcons scope position)) sem_old sem_new with
+                                 | Some sem_inv => formal_statements invalid scope (S position) mm sem_old set_regs sem_inv ssl'
+                                 | None => None
+                                 end
+    | Qcons (Swhen c ssl_true ssl_false) ssl' => match eval_hfexpr_validif_policy (isolated_validif_policy invalid) (validif_raw_address scope position 0 [::]) mm c sem_old sem_old with
+                                                 | Some (Gval (Fuint _) valc) => if is_zero valc then match formal_statements invalid (rcons (rcons scope position) 1) 0 mm sem_old set_regs sem_new ssl_false with
+                                                                                                      | Some sem_false => formal_statements invalid scope (S position) mm sem_old set_regs sem_false ssl'
+                                                                                                      | None => None
+                                                                                                      end
+                                                                                                 else match formal_statements invalid (rcons (rcons scope position) 0) 0 mm sem_old set_regs sem_new ssl_true with
+                                                                                                      | Some sem_true => formal_statements invalid scope (S position) mm sem_old set_regs sem_true ssl'
+                                                                                                      | None => None
+                                                                                                      end
+                                                 | Some (Undefinedonpurpose (Gtyp (Fuint _))) => match make_undefined sem_old set_regs Undefinedonpurpose sem_new ssl_true with
+                                                                                                 | Some sem_true => match make_undefined sem_old set_regs Undefinedonpurpose sem_true ssl_false with
+                                                                                                                    | Some sem_false => formal_statements invalid scope (S position) mm sem_old set_regs sem_false ssl'
+                                                                                                                    | None => None
+                                                                                                                    end
+                                                                                                 | None => None
+                                                                                                 end
+                                                 | Some (Needtobedefined    (Gtyp (Fuint _)))
+                                                 | Some (Uninitialized      (Gtyp (Fuint _))) => match make_undefined sem_old set_regs Needtobedefined sem_new ssl_true with
+                                                                                                 | Some sem_true => match make_undefined sem_old set_regs Needtobedefined sem_true ssl_false with
+                                                                                                                    | Some sem_false => formal_statements invalid scope (S position) mm sem_old set_regs sem_false ssl'
+                                                                                                                    | None => None
+                                                                                                                    end
+                                                                                                 | None => None
+                                                                                                 end
+                                                 | _ => None
+                                                 end
+    end.
+
+Definition formal_register_next_value
+  (eval : nat -> HiF.hfexpr -> option hvalue) (reg : HiF.hfreg) (proposed : hvalue)
+  : option hvalue :=
+  match reset reg with
+  | NRst => Some proposed
+  | Rst condition initial =>
+      match eval 1 condition with
+      | Some (Gval (Fuint 1) bits)
+      | Some (Gval Freset bits)
+      | Some (Gval Fasyncreset bits) =>
+          if is_zero bits then Some proposed
+          else match eval 2 initial with
+               | Some value => adapt_hvalue_as_type value (type reg)
+               | None => None
+               end
+      | Some (Needtobedefined (Gtyp (Fuint 1)))
+      | Some (Needtobedefined (Gtyp Freset))
+      | Some (Needtobedefined (Gtyp Fasyncreset))
+      | Some (Uninitialized (Gtyp (Fuint 1)))
+      | Some (Uninitialized (Gtyp Freset))
+      | Some (Uninitialized (Gtyp Fasyncreset)) =>
+          Some (Needtobedefined (type reg))
+      | Some (Undefinedonpurpose (Gtyp (Fuint 1)))
+      | Some (Undefinedonpurpose (Gtyp Freset))
+      | Some (Undefinedonpurpose (Gtyp Fasyncreset)) =>
+          Some (Undefinedonpurpose (type reg))
+      | _ => None
+      end
+  end.
+
+Fixpoint formal_finish_registers
+  (invalid : invalid_value_policy) (scope : seq nat) (position : nat) (mm : memory_map)
+  (sem_old : VM.t hvalue) (set_regs : bool) (sem_new : VM.t hvalue)
+  (ssl : HiF.hfstmt_seq) {struct ssl} : option (VM.t hvalue) :=
+  match ssl with
+  | Qnil => Some sem_new
+  | Qcons st tl =>
+      let next := match st with
+      | Sreg id reg =>
+          match VM.find id sem_old, VM.find id sem_new with
+          | Some old_value, Some proposed =>
+              match (if set_regs then formal_register_next_value (fun context e => eval_hfexpr_validif_policy (isolated_validif_policy invalid) (validif_raw_address scope position context [::]) mm e sem_old sem_old) reg proposed else Some old_value) with
+              | Some value => Some (VM.add id value sem_new)
+              | None => None
+              end
+          | _, _ => None
+          end
+      | Swhen _ yes no =>
+          match formal_finish_registers invalid (scope ++ [::position;0]) 0 mm sem_old set_regs sem_new yes with
+          | Some after_yes => formal_finish_registers invalid (scope ++ [::position;1]) 0 mm sem_old set_regs after_yes no
+          | None => None
+          end
+      | _ => Some sem_new
+      end in
+      match next with
+      | Some state => formal_finish_registers invalid scope (S position) mm sem_old set_regs state tl
+      | None => None
+      end
+  end.
+
+Definition formal_value_iter invalid mm sem_old set_regs sem_new ssl :=
+ match formal_statements invalid [::] 0 mm sem_old set_regs sem_new ssl with
+ | Some proposed => formal_finish_registers invalid [::] 0 mm sem_old set_regs proposed ssl
+ | None => None end.
+Definition formal_circuit_value_iter
+  (invalid : SVM.key -> invalid_value_policy)
+  (mml : seq HiF.hfmodule) (mi_top : VarOrder.T)
+  (circuit_sem_old : SVM.t (VM.t hvalue)) (set_regs : bool)
+  : option (SVM.t (VM.t hvalue)) :=
+  match find_circuit_instances mml mi_top with
+  | Some fci =>
+      match SVM.fold
+        (fun (ii : SVM.key) (mi : VarOrder.T)
+             (acc : option (SVM.t (VM.t hvalue))) =>
+          match acc, SVM.find ii circuit_sem_old,
+                (match acc with Some cs => SVM.find ii cs | None => None end),
+                find_module mml mi,
+                memory_map_for_module mml mi with
+          | Some circuit_sem_new, Some sem_old, Some sem_new,
+            Some (FInmod _ _ ssl), Some mm =>
+              match formal_value_iter (invalid ii) mm sem_old set_regs sem_new ssl with
+              | Some sem_res => Some (SVM.add ii sem_res circuit_sem_new)
+              | None => None
+              end
+          | _, _, _, _, _ => None
+          end)
+        fci (Some circuit_sem_old) with
+      | Some evaluated => sync_circuit_ports mml fci evaluated
+      | None => None
+      end
+  | None => None
+  end.
+
 Fixpoint circuit_formal_iterations (mml : seq HiF.hfmodule) (top : VarOrder.T)
   (inputs : formal_inputs) (n : nat) (states : SVM.t (VM.t hvalue)) :=
   match n with
   | O => Some states
   | S rest =>
-    match circuit_value_iter_with_memory_policy (formal_invalid_policy inputs)
+    match formal_circuit_value_iter (formal_invalid_policy inputs)
       mml top states false with
     | Some next => circuit_formal_iterations mml top inputs rest next
     | None => None
@@ -1021,7 +1366,7 @@ Definition circuit_formal_cycle (mml : seq HiF.hfmodule) (top : VarOrder.T)
         circuit_iter_count_with_memory mml top Gtyp_connect_count with
   | Some initial, Some n =>
     match circuit_formal_iterations mml top inputs n initial with
-    | Some stable => circuit_value_iter_with_memory_policy (formal_invalid_policy inputs)
+    | Some stable => formal_circuit_value_iter (formal_invalid_policy inputs)
         mml top stable true
     | None => None
     end

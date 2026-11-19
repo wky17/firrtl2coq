@@ -33,8 +33,8 @@ The following versions are known to work:
 
 | Dependency | Version |
 |------------|---------|
-| [Coq](https://coq.inria.fr) | 8.16.0 |
-| [MathComp](https://github.com/math-comp/math-comp) | 1.15.0 |
+| [Coq](https://coq.inria.fr) | 8.20.1 |
+| [MathComp](https://github.com/math-comp/math-comp) | 1.19.0 |
 | [OCaml](https://ocaml.org) | 4.14.2 |
 | [dune](https://dune.build) | any recent version |
 
@@ -44,14 +44,14 @@ We recommend installing Coq, MathComp and OCaml through
 ```bash
 opam switch create firrtl2coq 4.14.2
 eval $(opam env)
-opam install coq.8.16.0 coq-mathcomp-ssreflect.1.15.0 dune
+opam install coq.8.20.1 coq-mathcomp-ssreflect.1.19.0 dune
 ```
 
 If you already have a compatible opam switch, simply install the missing
 packages:
 
 ```bash
-opam install coq.8.16.0 coq-mathcomp-ssreflect.1.15.0 dune
+opam install coq.8.20.1 coq-mathcomp-ssreflect.1.19.0 dune
 ```
 
 ---

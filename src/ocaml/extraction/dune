@@ -7,4 +7,4 @@
   Firrtl_with_implicit_widths HiEnv_with_implicit_widths
   HiFirrtl_with_implicit_widths Int0 List0 MSetAVL MSetInterface NBitsDef
   NBitsOp Nat0 OrderedType Orders OrdersFacts OrdersTac Semantics_with_implicit_widths
-  Seq SsrOrder Ssrbool Ssrnat String0 Var ZAriths))
+  Seq SsrOrder Ssrbool Ssrnat Ssreflect String0 Var ZAriths))
