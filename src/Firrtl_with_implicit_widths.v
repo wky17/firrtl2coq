@@ -382,7 +382,6 @@ Record fwriter_port : Type :=
 
 End LoFirrtl.
 
-(* Commented from here by David N. Jansen because there were errors.
 
 (************************************************************)
 (* Parallel semantics model *)
@@ -2217,6 +2216,97 @@ Definition reorder (modorder : seq var) (flagmap : fmap) (oldstmtsmap : mapfstmt
   (newstmtsmap, varmap)
   .
 
+(*
+  LoFIRRTL 的多步执行入口：先由 reorder 按依赖关系重排各模块的语句，
+  再由 run_module0 加载逐步输入并执行 mainmod；子实例通过递归求值执行。
+  以下“外部端口”指子实例在父模块中的端口变量，“内部端口”指被实例化
+  模块定义中的端口变量。各映射和初始状态须由调用方预先构造。
+
+  输入参数（按签名顺序）：
+  - modorder : seq var
+      模块依赖顺序；被实例化的子模块应先于使用它的父模块处理，供重排
+      阶段复用子模块的依赖图和已知输出信息。
+  - flagmap : fmap
+      模块标识 -> nat；作为依赖图路径搜索和拓扑排序的递归预算。
+      这里不是布尔标志，也不是模拟周期数。
+  - newinstportsmap : mmvar
+      父模块标识 -> (输入端口映射, 输出端口映射)；两张表均将实例的
+      外部端口映射到对应内部端口，供重排阶段分析跨实例依赖。
+  - finsti2e_outmap : mvar
+      实例标识 -> (内部输出端口 -> 外部输出端口)，供重排阶段将
+      子模块的已知输出转换为父模块中可用的起点。
+  - mainmod : var
+      本次执行的顶层模块标识，用于在 ffmodsmap 等表中查找模块信息。
+  - rs : vstate
+      顶层模块的持久状态/寄存器更新状态；寄存器连接将新值写入此表，
+      求值器也从中读取用于边沿判断的时钟值。其含义由初始化约定决定。
+  - s : vstate
+      顶层模块当前求值的信号状态，包括输入、连线、节点、端口以及
+      当前可见的寄存器值；执行过程中逐条更新。
+  - te : TE.env
+      顶层模块的初始类型环境（变量 -> 类型）；语句求值时据此计算
+      位宽、运算类型，并为声明等更新局部类型环境。
+  - io_in : mapioin
+      端口变量 -> 比特向量序列；输入端口保存待加载的输入序列，
+      输出端口保存累积的输出记录。输出项应预先初始化为空序列。
+  - name : seq var
+      顶层输入变量列表；每步从 io_in 中取出这些变量对应的输入值。
+  - ols : seq var
+      顶层待记录的输出变量列表；每步求值后将其在 s 中的值追加到 io_in。
+  - readerls : mapls
+      模块标识 -> 内存读端口的数据变量列表，用于识别内存读取。
+  - writerls : mapls
+      模块标识 -> 内存写端口的数据变量列表，用于识别内存写入。
+  - data2etc : map2etc
+      模块标识 -> (端口数据变量 -> (地址, 使能, 内存标识, 辅助变量, 时钟))。
+      写端口的辅助变量是 mask；读端口对应 flagvar，当前读求值未使用它。
+  - memmap : mapmem
+      顶层模块的初始内存状态：内存标识 -> (地址 bits -> 数据 bits)。
+      子实例自己的内存状态保存在 fterss 中。
+  - clk_num : nat
+      尚需执行的步数；run_module0 每执行一步递减一次，为 0 时直接返回。
+      每步是否发生有效时钟边沿，还取决于求值器看到的时钟信号值。
+  - len : nat
+      输入索引的基准长度；每步使用 len - 当前剩余 clk_num 作为输入下标。
+      从第 0 项开始执行时通常令 len = 初始 clk_num；越界输入采用默认 [::b0]。
+  - finstoutl : mapls
+      父模块标识 -> 该模块中子实例的外部输出端口列表；用于识别需要
+      递归求值子实例的引用，并参与依赖重排。
+  - finstoutm : mmaptuple
+      父模块标识 -> (外部输出端口 -> (被实例化模块标识, 实例标识))，
+      用于从一个实例输出定位模块定义和该实例的独立状态。
+  - ffmodsmap : mapfstmt
+      模块标识 -> 模块语句列表；本函数先重排该表，再交给执行器。
+      重排结果采用反向存储，eval_module/实例求值用 rev 恢复执行顺序。
+  - fterss : mapterss
+      实例标识 -> (类型环境, rs, s, 内存状态)，保存各实例的初始/当前状态；
+      实例执行后按实例标识写回更新结果。
+  - fread_la : allboolmap
+      模块标识 -> (内存标识 -> 读模式 bool)；当前实现中 false 直接读取，
+      true 仅在检测到指定时钟边沿时返回读取值；不是任意延迟周期数。
+  - finstin : mapls
+      模块标识 -> 模块定义的输入端口列表；用于子实例输入装载和依赖重排。
+  - finstout : mapls
+      模块标识 -> 模块定义的输出端口列表；传给 reorder 作为模块输出信息。
+  - finstportmap : mmapvar
+      父模块标识 -> (实例输入映射表, 实例输出映射表)。
+      输入表：实例标识 -> (内部输入端口 -> 父模块中的外部输入端口)，
+              upd_inner 按此映射将父模块信号装入子实例。
+      输出表：外部输出端口 -> 内部输出端口，用于取得子实例求值结果。
+  - iternum : nat
+      实例递归求值预算；每进入一层子实例递减。为 0 时退化为
+      eval_noninst_fstmt，不再执行实例；它与 clk_num 的步数预算不同。
+
+  返回值：vstate * vstate * mapmem * mapterss * mapioin
+    按顺序为 (rs_final, s_final, memmap_final, fterss_final, io_final)：
+    1. 顶层模块更新后的持久/寄存器状态；
+    2. 顶层模块最后一步的信号状态；
+    3. 顶层模块更新后的内存状态；
+    4. 更新后的各实例状态表，包含实例各自的类型环境、rs、s 和内存；
+    5. 保留输入序列并累积各步输出值的端口记录表。
+    clk_num = 0 时，这五项就是传入的对应状态；类型环境和重排得到的
+    varmap 不在返回值中。本函数也没有单独的错误/预算耗尽返回项。
+*)
 Definition run_module (modorder : seq var) (flagmap : fmap) (newinstportsmap : mmvar) (finsti2e_outmap : mvar) (mainmod : var) rs s te (io_in : mapioin) name ols readerls writerls data2etc memmap clk_num len 
   (finstoutl : mapls) (finstoutm : mmaptuple) (ffmodsmap : mapfstmt) (fterss : mapterss) (fread_la : allboolmap) (finstin : mapls) (finstout : mapls) (finstportmap : mmapvar) iternum : vstate * vstate * mapmem * mapterss * mapioin :=
   let '(newffmodsmap, varmap) := reorder modorder flagmap ffmodsmap newinstportsmap finsti2e_outmap finstin finstout finstoutl in
@@ -2226,7 +2316,7 @@ Definition run_module (modorder : seq var) (flagmap : fmap) (newinstportsmap : m
 
   (* Parallel evaluation *)
   
-  Definition eval_fport_init (p : fport) (s : vstate) : vstate :=
+  (*Definition eval_fport_init (p : fport) (s : vstate) : vstate :=
     match p with
     | Finput v t => if SV.acc v s == [::] then SV.upd v (from_Z (sizeof_fgtyp t) 0) s else s
     | Foutput v t => if SV.acc v s == [::] then SV.upd v (from_Z (sizeof_fgtyp t) 0) s else s
@@ -17396,3 +17486,7 @@ End MakeFirrtl.
 Module LoFirrtl := MakeFirrtl VarOrder TE Store.
 
 *)
+
+(* Close the active executable semantics; the legacy proofs above remain commented. *)
+End MakeFirrtl.
+Module LoFirrtl := MakeFirrtl VarOrder TE Store.

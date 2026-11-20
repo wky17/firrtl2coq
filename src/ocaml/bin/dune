@@ -1,4 +1,7 @@
 (executable
  (public_name ocaml)
  (name main)
+ (modules main)
  (libraries ocaml hifirrtl_lang extraction))
+
+(executable (name main_lo) (modules main_lo) (libraries ocaml hifirrtl_lang extraction))

@@ -33,3 +33,6 @@ src/FormalInitializationChecks.v
 src/ObservationChecks.v
 src/UnsignedSubtractionChecks.v
 src/InvalidIterationChecks.v
+src/LoCircuit.v
+src/Extract.v
+src/LoVerification.v

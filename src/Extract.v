@@ -4,7 +4,7 @@ From Coq Require Import Arith List.
 From mathcomp Require Import tuple.
 From nbits Require Import NBits.
 From simplssrlib Require Import Var.
-From firrtl Require Import Env_with_implicit_widths Semantics_with_implicit_widths.
+From firrtl Require Import Env_with_implicit_widths Semantics_with_implicit_widths LoCircuit.
 
 Extraction Language OCaml.
 
@@ -21,5 +21,6 @@ Separate Extraction
          LoFirrtl.no_mem_run_module LoFirrtl.no_mem_run_module0 *)
          (*Semantics.expandconnects Semantics.expandWhens.*)
          Env_with_implicit_widths.sizeof_fgtyp
-         Semantics_with_implicit_widths.circuit_value.
+         Semantics_with_implicit_widths.circuit_value
+         LoCircuit.run_circuit.
 Cd "../../..".
