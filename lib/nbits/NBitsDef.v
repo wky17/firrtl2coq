@@ -466,7 +466,7 @@ Section Lemmas.
   Proof.
     elim: bs1 => [| b bs1 IH] //=. move=> Hsz.
     have H : size (bs1 ++ bs2) = (size (bs1 ++ bs2)).-1.+1.
-    { symmetry. apply (Nat.lt_succ_pred 0). apply/ltP. rewrite size_cat. by apply ltn_addl. }
+    { symmetry. apply Nat.succ_pred_pos. apply/ltP. rewrite size_cat. by apply ltn_addl. }
     by rewrite (eqP (dropmsb_cons _ H)) (IH Hsz).
   Qed.
 

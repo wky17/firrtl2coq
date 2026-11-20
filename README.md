@@ -149,6 +149,8 @@ translated circuit is available for further Coq proofs.
     └── demo/                # Example FIRRTL circuits (e.g. CoreSoc.hi.fir)
 ```
 
+Formal reset initialization, input domain and assertion cycle conventions are documented in
+[Formal-initialization-and-observation.md](Formal-initialization-and-observation.md).
 ## Cycle-level LoFIRRTL execution
 
 `src/LoCircuit.v` provides `LoCircuit.LoCircuit.run_circuit`, accepting a

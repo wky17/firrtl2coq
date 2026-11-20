@@ -116,27 +116,51 @@ let emit_verification oc (tc : Transhiast_without_inline.translated_circuit) =
   output_string oc "\n(* Generated verification properties. *)\n";
   output_string oc "Definition generated_hvalue_true (v : Semantics_with_implicit_widths.hvalue) : Prop := match v with | Semantics_with_implicit_widths.Gval (Env_with_implicit_widths.Fuint 1) b => b != [:: false] | _ => False end.\n";
   output_string oc "Definition generated_expr_true (e : (@HiFirrtl_with_implicit_widths.hfexpr VarOrder.T)) (sem : Var.VM.t Semantics_with_implicit_widths.hvalue) : Prop := match Semantics_with_implicit_widths.eval_hfexpr e sem sem with | Some v => generated_hvalue_true v | None => False end.\n";
-  output_string oc "Definition generated_circuit_value (external_inputs : Var.VM.t Semantics_with_implicit_widths.hvalue) : option (Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) := circuit_value_with_memory generated_modules generated_top None external_inputs.\n";
-  output_string oc "Definition generated_run (inputs : nat -> Var.VM.t Semantics_with_implicit_widths.hvalue) (k : nat) := circuit_run_from_reset generated_modules generated_top inputs k.\n";
+  output_string oc "(* Memory contents are chosen once; explicit invalid sources have universally quantified per-cycle choices. *)\n";
+  (match tc.top_reset with
+   | Some (id, typ) ->
+       Printf.fprintf oc "(* Real reset edge after arbitrary symbolic register initialization; then k ordinary edges. *)\nDefinition generated_reset_id : VarOrder.T := %d.\nDefinition generated_reset_type : fgtyp := %s.\n" id (pp_fgtyp typ);
+       output_string oc "Definition generated_initial_state (memory_init : memory_initialization) (inputs : formal_inputs) := formal_state_after_reset generated_modules generated_top generated_reset_id generated_reset_type memory_init inputs.\n";
+       output_string oc "Definition generated_run_with_choices (memory_init : memory_initialization) (choices : invalid_choices) (inputs : nat -> Var.VM.t Semantics_with_implicit_widths.hvalue) (k : nat) := formal_run_after_reset generated_modules generated_top generated_reset_id generated_reset_type memory_init (formal_input_of_choices choices inputs) k.\n";
+       output_string oc "Definition generated_run (memory_init : memory_initialization) (inputs : nat -> formal_inputs) (k : nat) := formal_run_after_reset generated_modules generated_top generated_reset_id generated_reset_type memory_init inputs k.\n";
+       output_string oc "Definition generated_observation_input (inputs : nat -> formal_inputs) (k : nat) := inputs (S k).\n"
+   | None ->
+       output_string oc "(* No named top-level Chisel reset port: retain the structural initialization API. *)\n";
+       output_string oc "Definition generated_initial_state (memory_init : memory_initialization) (inputs : formal_inputs) := circuit_reset_state_with_memory_init generated_modules generated_top memory_init (formal_external_inputs inputs).\n";
+       output_string oc "Definition generated_run_with_choices (memory_init : memory_initialization) (choices : invalid_choices) (inputs : nat -> Var.VM.t Semantics_with_implicit_widths.hvalue) (k : nat) := circuit_run_from_reset_with_choices generated_modules generated_top memory_init choices inputs k.\n";
+       output_string oc "Definition generated_run (memory_init : memory_initialization) (inputs : nat -> formal_inputs) (k : nat) := circuit_formal_run_from_reset generated_modules generated_top memory_init inputs k.\n";
+       output_string oc "Definition generated_observation_input (inputs : nat -> formal_inputs) (k : nat) := inputs k.\n");
+  output_string oc "(* Observation k is before the next ordinary edge. Reset-bearing tops reserve input 0 for reset and use input (S k). *)\n";
+  output_string oc "(* Both initialization and ordinary edges use the original hierarchical cycle interpreter. *)\n";
+  output_string oc "Definition generated_observe_cycle (previous : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) (inputs : formal_inputs) := match circuit_initial_map_with_memory generated_modules generated_top (Some previous) (formal_external_inputs inputs), circuit_iter_count_with_memory generated_modules generated_top Semantics_with_implicit_widths.Gtyp_connect_count with | Some initial, Some n => circuit_formal_iterations generated_modules generated_top inputs n initial | _, _ => None end.\n";
+  output_string oc "Definition generated_observe (memory_init : memory_initialization) (inputs : nat -> formal_inputs) (k : nat) := match generated_run memory_init inputs k with | Some previous => generated_observe_cycle previous (generated_observation_input inputs k) | None => None end.\n";
+  output_string oc "Definition generated_circuit_value (memory_init : memory_initialization) (inputs : formal_inputs) := generated_run memory_init (fun _ => inputs) 1.\n";
   output_string oc "Fixpoint generated_assert_instances (module_id : VarOrder.T) (p : Var.VM.t Semantics_with_implicit_widths.hvalue -> Prop) (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) (xs : list (Semantics_with_implicit_widths.SVM.key * VarOrder.T)) : Prop := match xs with | [::] => True | (path, actual) :: tl => ((actual != module_id) \\/ match Semantics_with_implicit_widths.SVM.find path states with | Some sem => p sem | None => False end) /\\ generated_assert_instances module_id p states tl end.\n";
   output_string oc "Fixpoint generated_assume_instances (module_id : VarOrder.T) (p : Var.VM.t Semantics_with_implicit_widths.hvalue -> Prop) (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) (xs : list (Semantics_with_implicit_widths.SVM.key * VarOrder.T)) : Prop := match xs with | [::] => True | (path, actual) :: tl => ((actual != module_id) \\/ match Semantics_with_implicit_widths.SVM.find path states with | Some sem => p sem | None => False end) /\\ generated_assume_instances module_id p states tl end.\n";
   output_string oc "Definition generated_instances (module_id : VarOrder.T) (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) : Prop := match Semantics_with_implicit_widths.find_circuit_instances generated_modules generated_top with | Some im => generated_assert_instances module_id (fun _ => True) states (Semantics_with_implicit_widths.SVM.elements im) | None => False end.\n";
-  let emit_local kind x =
-    let n = Printf.sprintf "generated_%s_%s" kind x.Transhiast_without_inline.name in
+  (* FIRRTL verification labels are local to a module, not Coq globals. Numeric
+     module and occurrence IDs also avoid identifier escaping collisions. *)
+  let emit_local kind i x =
+    let n = Printf.sprintf "generated_%s_m%d_%d" kind x.Transhiast_without_inline.module_id i in
     Printf.fprintf oc "Definition %s_local (sem : Var.VM.t Semantics_with_implicit_widths.hvalue) : Prop := generated_expr_true %s sem -> generated_expr_true %s sem.\n" n (pp_expr x.enable) (pp_expr x.predicate); n
   in
-  let an = List.map (emit_local "assert" ) tc.assertions in
-  let un = List.map (emit_local "assume" ) tc.assumes in
+  let an = List.mapi (emit_local "assert") tc.assertions in
+  let un = List.mapi (emit_local "assume") tc.assumes in
   let fold_assumes = List.fold_left (fun acc n -> acc ^ " /\\ " ^ n ^ "_all states") "True" un in
-  List.iter (fun x -> Printf.fprintf oc "Definition generated_%s_%s_all (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) : Prop := match Semantics_with_implicit_widths.find_circuit_instances generated_modules generated_top with | Some im => generated_assert_instances %d generated_assert_%s_local states (Semantics_with_implicit_widths.SVM.elements im) | None => False end.\n" "assert" x.Transhiast_without_inline.name x.module_id x.Transhiast_without_inline.name) tc.assertions;
-  List.iter (fun x -> Printf.fprintf oc "Definition generated_%s_%s_all (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) : Prop := match Semantics_with_implicit_widths.find_circuit_instances generated_modules generated_top with | Some im => generated_assume_instances %d generated_assume_%s_local states (Semantics_with_implicit_widths.SVM.elements im) | None => False end.\n" "assume" x.Transhiast_without_inline.name x.module_id x.Transhiast_without_inline.name) tc.assumes;
+  let emit_all kind names properties =
+    List.iter2 (fun n x -> Printf.fprintf oc "Definition %s_all (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) : Prop := match Semantics_with_implicit_widths.find_circuit_instances generated_modules generated_top with | Some im => generated_%s_instances %d %s_local states (Semantics_with_implicit_widths.SVM.elements im) | None => False end.\n" n kind x.Transhiast_without_inline.module_id n) names properties
+  in
+  emit_all "assert" an tc.assertions;
+  emit_all "assume" un tc.assumes;
   Printf.fprintf oc "Definition generated_all_assumptions (states : Semantics_with_implicit_widths.SVM.t (Var.VM.t Semantics_with_implicit_widths.hvalue)) : Prop := %s.\n" fold_assumes;
-  List.iteri (fun i x -> Printf.fprintf oc "Lemma generated_assert_%d : forall inputs (k : nat) states, generated_run inputs k = Some states -> generated_all_assumptions states -> generated_assert_%s_all states.\nAdmitted.\n" i x.Transhiast_without_inline.name) tc.assertions
+  output_string oc "(* Assumptions cover observations 0..k, including the same current observation as assertions. *)\n";
+  output_string oc "Definition generated_legal_trace memory_init inputs (k : nat) : Prop := formal_external_inputs_defined generated_modules generated_top (inputs O) = true /\\ forall j, (j <= k)%coq_nat -> formal_external_inputs_defined generated_modules generated_top (generated_observation_input inputs j) = true /\\ exists states, generated_observe memory_init inputs j = Some states /\\ generated_all_assumptions states.\n";
+  List.iteri (fun i n -> Printf.fprintf oc "Lemma generated_assert_%d : forall memory_init inputs (k : nat) states, generated_observe memory_init inputs k = Some states -> generated_legal_trace memory_init inputs k -> %s_all states.\nAdmitted.\n" i n) an
 
 let emit_file oc (tc : Transhiast_without_inline.translated_circuit) =
   match tc.circuit with
   | H.Fcircuit (v, modules) ->
-      output_string oc "From Coq Require Import ZArith.\nFrom mathcomp Require Import ssreflect ssrbool ssrnat eqtype seq.\nFrom simplssrlib Require Import Types SsrOrder Var.\nFrom nbits Require Import NBits.\nFrom firrtl Require Import Env_with_implicit_widths Firrtl_with_implicit_widths HiEnv_with_implicit_widths HiFirrtl_with_implicit_widths Semantics_for_circuit Semantics_with_memory.\n\nLocal Open Scope N_scope.\n\n";
+      output_string oc "From Coq Require Import ZArith.\nFrom mathcomp Require Import ssreflect ssrbool ssrnat eqtype seq.\nFrom simplssrlib Require Import Types SsrOrder Var.\nFrom nbits Require Import NBits.\nFrom firrtl Require Import Env_with_implicit_widths Firrtl_with_implicit_widths HiEnv_with_implicit_widths HiFirrtl_with_implicit_widths Semantics_for_circuit Semantics_with_memory FormalInitialization.\n\nLocal Open Scope N_scope.\n\n";
       emit_qcat oc;
       let names = List.mapi (emit_module oc) modules in
       Printf.fprintf oc "Definition generated_modules : seq (@hfmodule VarOrder.T) :=\n  %s.\n\n" (seq (fun x -> x) names);

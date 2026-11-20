@@ -167,7 +167,7 @@ and trans_hfmem v m map =
 
 type assertion_metadata = { module_id : int; name : string; enable : HiFirrtl_with_implicit_widths.hfexpr; predicate : HiFirrtl_with_implicit_widths.hfexpr }
 type assume_metadata = assertion_metadata
-type translated_circuit = { circuit : HiFirrtl_with_implicit_widths.hfcircuit; assertions : assertion_metadata list; assumes : assume_metadata list }
+type translated_circuit = { circuit : HiFirrtl_with_implicit_widths.hfcircuit; assertions : assertion_metadata list; assumes : assume_metadata list; top_reset : (int * Env_with_implicit_widths.fgtyp) option }
 
 let rec collect_verification module_id map guards = function
   | Ast.Qnil -> ([], [])
@@ -214,4 +214,20 @@ let trans_cir cir modmap map =
           let ((mm, _), _) = StringMap.find mv map in
           let a,u = collect_verification mid mm [] stmts in (aa @ a, uu @ u)
       | Ast.FExmod _ -> (aa, uu)) ([], []) ml in
-    { circuit; assertions; assumes }
+    (* Chisel exports a scalar top input named reset. Record its translated ID,
+       rather than guessing an integer after name erasure. Other interfaces keep
+       the historical structural initialization; no unnamed port is guessed. *)
+    let top_reset = List.find_map (function
+      | Ast.FInmod (name, ports, _) when name = cv ->
+          List.find_map (function
+            | Ast.Finput ("reset", ty) ->
+                let ((mm, _), _) = StringMap.find name map in
+                let gt = match ty with
+                  | Ast.Gtyp (Ast.Fuint 1) -> Env_with_implicit_widths.Fuint 1
+                  | Ast.Gtyp Ast.Freset -> Env_with_implicit_widths.Freset
+                  | Ast.Gtyp Ast.Fasyncreset -> Env_with_implicit_widths.Fasyncreset
+                  | _ -> failwith "Top input reset must be UInt<1>, Reset or AsyncReset" in
+                Some (List.hd (StringMap.find "reset" mm), gt)
+            | _ -> None) ports
+      | _ -> None) ml in
+    { circuit; assertions; assumes; top_reset }
