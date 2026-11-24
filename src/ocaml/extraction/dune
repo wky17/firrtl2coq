@@ -5,6 +5,6 @@
   Env_with_implicit_widths Equalities Eqtype FMapFacts FMapInterface FMaps
   FSetDecide FSetFacts FSetInterface FSetProperties FSets
   Firrtl_with_implicit_widths HiEnv_with_implicit_widths
-  HiFirrtl_with_implicit_widths Int0 List0 MSetAVL MSetInterface NBitsDef
+  HiFirrtl_with_implicit_widths Int0 List0 LoCircuit MSetAVL MSetInterface NBitsDef
   NBitsOp Nat0 OrderedType Orders OrdersFacts OrdersTac Semantics_with_implicit_widths
-  Seq Ssreflect SsrOrder Ssrbool Ssrnat String0 Var ZAriths))
+  PeanoNat Seq Specif SsrOrder Ssrbool Ssrnat Ssreflect String0 Var ZAriths))
